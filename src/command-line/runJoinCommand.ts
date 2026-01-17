@@ -1,0 +1,182 @@
+import type { Logger } from "pino";
+import { type RaknetBackend } from "../constants.js";
+import { createAuthFlow } from "../authentication/authFlow.js";
+import { resolveCachePaths } from "../authentication/cachePaths.js";
+import { discoverLanServers } from "../bedrock/lanDiscovery.js";
+import { joinBedrockServer } from "../bedrock/joinClient.js";
+import { normalizeServerName, selectServerByName } from "../bedrock/serverSelection.js";
+import { discoverNethernetLanServers } from "../nethernet/lanDiscovery.js";
+
+export type JoinCommandOptions = {
+  accountName: string;
+  host: string | undefined;
+  port: number;
+  serverName: string | undefined;
+  transport: "raknet" | "nethernet";
+  discoveryTimeoutMs: number;
+  cacheDirectory: string | undefined;
+  keyFilePath: string | undefined;
+  environmentKey: string | undefined;
+  minecraftVersion: string | undefined;
+  joinTimeoutMs: number;
+  disconnectAfterFirstChunk: boolean;
+  forceRefresh: boolean;
+  raknetBackend: RaknetBackend;
+  skipPing: boolean;
+};
+
+export type JoinDependencies = {
+  resolveCachePaths: typeof resolveCachePaths;
+  discoverLanServers: typeof discoverLanServers;
+  discoverNethernetLanServers: typeof discoverNethernetLanServers;
+  selectServerByName: typeof selectServerByName;
+  createAuthFlow: typeof createAuthFlow;
+  joinBedrockServer: typeof joinBedrockServer;
+};
+
+const defaultJoinDependencies: JoinDependencies = {
+  resolveCachePaths,
+  discoverLanServers,
+  discoverNethernetLanServers,
+  selectServerByName,
+  createAuthFlow,
+  joinBedrockServer
+};
+
+export const runJoinCommand = async (
+  options: JoinCommandOptions,
+  logger: Logger,
+  dependencies: JoinDependencies = defaultJoinDependencies
+): Promise<void> => {
+  const cachePaths = dependencies.resolveCachePaths("bedcraft");
+  const cacheDirectory = options.cacheDirectory ?? cachePaths.cacheDirectory;
+  const keyFilePath = options.keyFilePath ?? cachePaths.keyFilePath;
+  if (!options.host && !options.serverName) throw new Error("Either host or server name must be provided");
+  const target = options.transport === "nethernet"
+    ? await resolveNethernetTarget(options, logger, dependencies)
+    : await resolveRaknetTarget(options, logger, dependencies);
+  const authFlowResult = dependencies.createAuthFlow({
+    accountName: options.accountName,
+    cacheDirectory,
+    keyFilePath,
+    environmentKey: options.environmentKey,
+    forceRefresh: options.forceRefresh,
+    deviceCodeCallback: (code) => {
+      logger.info({
+        event: "device_code",
+        verificationUri: code.verification_uri,
+        userCode: code.user_code,
+        expiresInSeconds: code.expires_in,
+        intervalSeconds: code.interval
+      }, "Complete Microsoft login in your browser");
+    }
+  });
+  logger.info({ event: "auth_cache", cacheDirectory, keySource: authFlowResult.keySource }, "Authentication cache ready");
+  await dependencies.joinBedrockServer({
+    host: target.host,
+    port: target.port,
+    accountName: options.accountName,
+    authflow: authFlowResult.authflow,
+    logger,
+    serverName: target.serverName,
+    disconnectAfterFirstChunk: options.disconnectAfterFirstChunk,
+    skipPing: options.transport === "nethernet" ? true : options.skipPing,
+    raknetBackend: options.raknetBackend,
+    transport: options.transport,
+    joinTimeoutMs: options.joinTimeoutMs,
+    ...(options.minecraftVersion !== undefined ? { minecraftVersion: options.minecraftVersion } : {}),
+    ...(target.nethernetServerId !== undefined ? { nethernetServerId: target.nethernetServerId } : {})
+  });
+};
+
+type ResolvedTarget = {
+  host: string;
+  port: number;
+  serverName: string | undefined;
+  nethernetServerId?: bigint;
+};
+
+const resolveRaknetTarget = async (
+  options: Pick<JoinCommandOptions, "host" | "port" | "serverName" | "discoveryTimeoutMs">,
+  logger: Logger,
+  dependencies: Pick<JoinDependencies, "discoverLanServers" | "selectServerByName">
+): Promise<ResolvedTarget> => {
+  if (options.host) return { host: options.host, port: options.port, serverName: options.serverName };
+  return resolveRaknetServerByName(options.serverName ?? "", options.discoveryTimeoutMs, logger, dependencies);
+};
+
+const resolveRaknetServerByName = async (
+  serverName: string,
+  timeoutMs: number,
+  logger: Logger,
+  dependencies: Pick<JoinDependencies, "discoverLanServers" | "selectServerByName">
+): Promise<ResolvedTarget> => {
+  logger.info({ event: "discover", timeoutMs, transport: "raknet" }, "Searching for LAN server by name");
+  const servers = await dependencies.discoverLanServers({ timeoutMs });
+  const selection = dependencies.selectServerByName(servers, serverName);
+  if (selection.matches.length === 0) throw new Error(`No LAN servers matched name: ${serverName}`);
+  if (selection.matches.length > 1) throw new Error(`Multiple LAN servers matched name: ${serverName}`);
+  const match = selection.matches[0];
+  if (!match) throw new Error(`No LAN servers matched name: ${serverName}`);
+  return { host: match.host, port: match.port, serverName: match.advertisement.motd };
+};
+
+const resolveNethernetTarget = async (
+  options: Pick<JoinCommandOptions, "host" | "port" | "serverName" | "discoveryTimeoutMs">,
+  logger: Logger,
+  dependencies: Pick<JoinDependencies, "discoverNethernetLanServers">
+): Promise<ResolvedTarget> => {
+  if (options.host) return resolveNethernetServerByHost(
+    options.host,
+    options.port,
+    options.discoveryTimeoutMs,
+    logger,
+    dependencies
+  );
+  return resolveNethernetServerByName(options.serverName ?? "", options.discoveryTimeoutMs, logger, dependencies);
+};
+
+const resolveNethernetServerByHost = async (
+  host: string,
+  port: number,
+  timeoutMs: number,
+  logger: Logger,
+  dependencies: Pick<JoinDependencies, "discoverNethernetLanServers">
+): Promise<ResolvedTarget> => {
+  logger.info({ event: "discover", timeoutMs, transport: "nethernet", host, port }, "Requesting NetherNet server id");
+  const servers = await dependencies.discoverNethernetLanServers({ timeoutMs, port, broadcastAddresses: [host] });
+  if (servers.length === 0) throw new Error(`No NetherNet servers responded from host: ${host}`);
+  if (servers.length > 1) throw new Error(`Multiple NetherNet servers responded from host: ${host}`);
+  const match = servers[0];
+  if (!match) throw new Error(`No NetherNet servers responded from host: ${host}`);
+  return {
+    host: match.host,
+    port: match.port,
+    serverName: match.serverData.serverName,
+    nethernetServerId: match.senderId
+  };
+};
+
+const resolveNethernetServerByName = async (
+  serverName: string,
+  timeoutMs: number,
+  logger: Logger,
+  dependencies: Pick<JoinDependencies, "discoverNethernetLanServers">
+): Promise<ResolvedTarget> => {
+  logger.info({ event: "discover", timeoutMs, transport: "nethernet" }, "Searching for LAN server by name");
+  const normalizedTarget = normalizeServerName(serverName);
+  const servers = await dependencies.discoverNethernetLanServers({ timeoutMs });
+  const matches = servers.filter((server) => {
+    return normalizeServerName(server.serverData.serverName).includes(normalizedTarget);
+  });
+  if (matches.length === 0) throw new Error(`No LAN servers matched name: ${serverName}`);
+  if (matches.length > 1) throw new Error(`Multiple LAN servers matched name: ${serverName}`);
+  const match = matches[0];
+  if (!match) throw new Error(`No LAN servers matched name: ${serverName}`);
+  return {
+    host: match.host,
+    port: match.port,
+    serverName: match.serverData.serverName,
+    nethernetServerId: match.senderId
+  };
+};

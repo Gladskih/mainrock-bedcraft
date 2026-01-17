@@ -1,0 +1,14 @@
+import pino from "pino";
+import type { Logger } from "pino";
+
+const DEFAULT_LOG_LEVEL = "info"; // Default CLI logging level.
+const SERVICE_NAME = "bedcraft"; // Stable logger name for structured logs.
+
+export const createLogger = (level?: string): Logger => {
+  const options = {
+    level: level ?? DEFAULT_LOG_LEVEL,
+    base: { service: SERVICE_NAME },
+    timestamp: pino.stdTimeFunctions.isoTime
+  };
+  return pino(options, process.stdout);
+};

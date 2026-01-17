@@ -1,0 +1,16 @@
+{
+  "all": true,
+  "check-coverage": true,
+  "branches": 85,
+  "lines": 85,
+  "functions": 85,
+  "statements": 85,
+  "excludeAfterRemap": true,
+  "exclude": [
+    "dist/**",
+    "eslint.config.mjs",
+    "tests/**",
+    "**/*.d.ts",
+    "src/cli.ts"
+  ]
+}
