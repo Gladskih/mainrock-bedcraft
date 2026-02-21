@@ -15,6 +15,7 @@ import { joinBedrockServer } from "../bedrock/joinClient.js";
 import { calculateReconnectDelayMs } from "../bedrock/reconnectPolicy.js";
 import { normalizeServerName, selectServerByName } from "../bedrock/serverSelection.js";
 import { discoverNethernetLanServers } from "../nethernet/lanDiscovery.js";
+import { createJoinRuntimeStateMachine } from "./joinRuntimeStateMachine.js";
 
 export type JoinCommandOptions = {
   accountName: string;
@@ -69,6 +70,7 @@ export const runJoinCommand = async (
   logger: Logger,
   dependencies: JoinDependencies = defaultJoinDependencies
 ): Promise<void> => {
+  const joinRuntimeStateMachine = createJoinRuntimeStateMachine(logger);
   const cachePaths = dependencies.resolveCachePaths(APPLICATION_ID);
   const cacheDirectory = options.cacheDirectory ?? cachePaths.cacheDirectory;
   const keyFilePath = options.keyFilePath ?? cachePaths.keyFilePath;
@@ -90,13 +92,16 @@ export const runJoinCommand = async (
     }
   });
   logger.info({ event: "auth_cache", cacheDirectory, keySource: authFlowResult.keySource }, "Authentication cache ready");
+  joinRuntimeStateMachine.transitionTo("auth_ready");
   const reconnectMaxRetries = options.reconnectMaxRetries ?? DEFAULT_RECONNECT_MAX_RETRIES;
   const reconnectBaseDelayMs = options.reconnectBaseDelayMs ?? DEFAULT_RECONNECT_BASE_DELAY_MS;
   const reconnectMaxDelayMs = options.reconnectMaxDelayMs ?? DEFAULT_RECONNECT_MAX_DELAY_MS;
   for (let attempt = 0; ; attempt += 1) {
+    joinRuntimeStateMachine.transitionTo("discovering", { attempt: attempt + 1, transport: options.transport });
     const target = options.transport === "nethernet"
       ? await resolveNethernetTarget(options, logger, dependencies)
       : await resolveRaknetTarget(options, logger, dependencies);
+    joinRuntimeStateMachine.transitionTo("connecting", { attempt: attempt + 1, host: target.host, port: target.port });
     try {
       await dependencies.joinBedrockServer({
         host: target.host,
@@ -116,11 +121,32 @@ export const runJoinCommand = async (
         ...(options.playerListWaitMs !== undefined ? { playerListWaitMs: options.playerListWaitMs } : {}),
         ...(options.onPlayerListUpdate !== undefined ? { onPlayerListUpdate: options.onPlayerListUpdate } : {}),
         ...(options.minecraftVersion !== undefined ? { minecraftVersion: options.minecraftVersion } : {}),
-        ...(target.nethernetServerId !== undefined ? { nethernetServerId: target.nethernetServerId } : {})
+        ...(target.nethernetServerId !== undefined ? { nethernetServerId: target.nethernetServerId } : {}),
+        onConnectionStateChange: (stateChange) => {
+          if (stateChange.state === "online") {
+            joinRuntimeStateMachine.transitionTo("online", { attempt: attempt + 1, reason: stateChange.reason });
+            return;
+          }
+          if (stateChange.state === "offline") {
+            const currentState = joinRuntimeStateMachine.getState();
+            if (currentState === "online" || currentState === "connecting") {
+              joinRuntimeStateMachine.transitionTo("offline", { attempt: attempt + 1, reason: stateChange.reason });
+            }
+          }
+        }
       });
+      if (joinRuntimeStateMachine.getState() === "connecting") {
+        joinRuntimeStateMachine.transitionTo("online", { attempt: attempt + 1, reason: "session_completed_without_join_signal" });
+      }
+      if (joinRuntimeStateMachine.getState() === "online") {
+        joinRuntimeStateMachine.transitionTo("offline", { attempt: attempt + 1, reason: "session_completed" });
+      }
       return;
     } catch (error) {
-      if (attempt >= reconnectMaxRetries) throw error;
+      if (attempt >= reconnectMaxRetries) {
+        joinRuntimeStateMachine.transitionTo("failed", { attempt: attempt + 1, error: error instanceof Error ? error.message : String(error) });
+        throw error;
+      }
       const delayMs = calculateReconnectDelayMs({
         attempt,
         baseDelayMs: reconnectBaseDelayMs,
@@ -128,6 +154,7 @@ export const runJoinCommand = async (
         jitterRatio: DEFAULT_RECONNECT_JITTER_RATIO,
         random: dependencies.random
       });
+      joinRuntimeStateMachine.transitionTo("retry_waiting", { attempt: attempt + 1, delayMs });
       logger.warn(
         {
           event: "reconnect_retry",

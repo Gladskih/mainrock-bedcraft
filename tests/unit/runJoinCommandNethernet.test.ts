@@ -22,7 +22,8 @@ type JoinCall = {
 };
 
 const createLogger = (): Logger => ({
-  info: () => undefined
+  info: () => undefined,
+  warn: () => undefined
 } as unknown as Logger);
 
 const createBaseJoinOptions = (overrides: Partial<JoinCommandOptions> = {}): JoinCommandOptions => ({

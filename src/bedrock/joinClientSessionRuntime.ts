@@ -120,12 +120,14 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
     const finish = () => {
       if (finished) return;
       finished = true;
+      resolvedOptions.onConnectionStateChange?.({ state: "offline", reason: "session_finished" });
       cleanup();
       resolve();
     };
     const fail = (error: Error) => {
       if (finished) return;
       finished = true;
+      resolvedOptions.onConnectionStateChange?.({ state: "offline", reason: "session_failed" });
       cleanup();
       reject(error);
     };
@@ -147,10 +149,9 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
       movementLoop = null;
       postJoin.cleanup();
     };
-    const handleJoinAuthenticated = listPlayersOnly ? () => {
-      clearJoinTimeout();
-      playerListProbe.start();
-    } : () => undefined;
+    const handleJoinAuthenticated = listPlayersOnly
+      ? () => { clearJoinTimeout(); playerListProbe.start(); }
+      : () => undefined;
     const handleFirstChunk = resolvedOptions.disconnectAfterFirstChunk
       ? () => {
         finish();
@@ -196,6 +197,7 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
       },
       "Connecting to server"
     );
+    resolvedOptions.onConnectionStateChange?.({ state: "connecting", reason: "connect_start" });
     client.on("packet", (packet) => {
       const name = readPacketEventName(packet);
       if (!name) return;
@@ -216,6 +218,7 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
     });
     client.on("join", () => {
       authenticatedPlayerName = getProfileName(client);
+      resolvedOptions.onConnectionStateChange?.({ state: "online", reason: "join_authenticated" });
       resolvedOptions.logger.info({ event: "join", playerName: authenticatedPlayerName }, "Authenticated with server");
       handleJoinAuthenticated();
     });
@@ -248,13 +251,8 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
         "Spawn confirmed"
       );
     });
-    client.on("add_player", (packet) => {
-      playerTrackingState.handleAddPlayerPacket(packet);
-      playerListState.handleAddPlayerPacket(packet);
-    });
-    client.on("player_list", (packet) => {
-      playerListState.handlePlayerListPacket(packet);
-    });
+    client.on("add_player", (packet) => { playerTrackingState.handleAddPlayerPacket(packet); playerListState.handleAddPlayerPacket(packet); });
+    client.on("player_list", (packet) => { playerListState.handlePlayerListPacket(packet); });
     client.on("remove_entity", (packet) => {
       playerTrackingState.handleRemoveEntityPacket(packet);
     });

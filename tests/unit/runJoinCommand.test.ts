@@ -239,3 +239,22 @@ void test("runJoinCommand throws after reconnect retries are exhausted", async (
   ));
   assert.equal(attempts, 2);
 });
+
+void test("runJoinCommand records online and offline state transitions from join callbacks", async () => {
+  const { dependencies } = createDependencies();
+  const transitions: Array<{ from: string | undefined; to: string | undefined }> = [];
+  const logger = ({
+    info: (data: { event?: string; from?: string; to?: string }) => {
+      if (data.event !== "join_state") return;
+      transitions.push({ from: data.from, to: data.to });
+    },
+    warn: () => undefined
+  } as unknown) as Logger;
+  dependencies.joinBedrockServer = async (options) => {
+    options.onConnectionStateChange?.({ state: "online", reason: "join_authenticated" });
+    options.onConnectionStateChange?.({ state: "offline", reason: "session_finished" });
+  };
+  await runJoinCommand(createBaseJoinOptions(), logger, dependencies);
+  assert.equal(transitions.some((transition) => transition.from === "connecting" && transition.to === "online"), true);
+  assert.equal(transitions.some((transition) => transition.from === "online" && transition.to === "offline"), true);
+});

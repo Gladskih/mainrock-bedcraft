@@ -167,6 +167,7 @@ npm run test:coverage
 - No access to Minecraft installation files or UWP identity.
 - Safe defaults: limited ping frequency, clean disconnect after validation.
 - Logs are compact JSON with `time` (plus payload and `msg`) and intentionally omit level fields (`level`/`severity`).
+- `join` emits deterministic `join_state` transitions for recovery observability (`offline` -> `auth_ready` -> `discovering` -> `connecting` -> `online`/`retry_waiting`/`failed`).
 
 ## Project Policies
 

@@ -27,8 +27,8 @@ This document defines incremental delivery for a Bedrock LAN bot that runs on to
 - [x] Keep legacy MVP behavior behind `--disconnect-after-first-chunk`.
 - [x] Ensure graceful shutdown on `SIGINT` without false failure logs.
 - [x] Stream chunks after first chunk and log bounded progress events.
-- [ ] Add reconnect policy with capped retries and jitter.
-- [ ] Add explicit offline/online state machine with recovery transitions.
+- [x] Add reconnect policy with capped retries and jitter.
+- [x] Add explicit offline/online state machine with recovery transitions.
 
 ## Phase 1: World State Ingestion
 
@@ -99,4 +99,5 @@ This document defines incremental delivery for a Bedrock LAN bot that runs on to
 
 - This iteration ships Phase 0 runtime improvements and a first planner scaffold (`src/bot/progressionPlan.ts`).
 - This iteration also ships the first goal variant: `follow-player` with packet-based target tracking and patrol fallback while the target is out of range.
+- This iteration also adds explicit join runtime state transitions (`offline/auth_ready/discovering/connecting/online/retry_waiting/failed`) for deterministic recovery visibility.
 - Resource scanning, navigation, and gameplay execution are intentionally staged for subsequent increments to keep behavior measurable and safe.

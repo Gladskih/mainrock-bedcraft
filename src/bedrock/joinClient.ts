@@ -9,6 +9,13 @@ import { createJoinPromise, lookupHostAddress } from "./joinClientSession.js";
 export { createNethernetClient, disableBedrockEncryptionForNethernet } from "./nethernetClientFactory.js";
 export type { CreateNethernetClientDependencies } from "./nethernetClientFactory.js";
 
+export type JoinConnectionState = "connecting" | "online" | "offline";
+
+export type JoinConnectionStateChange = {
+  state: JoinConnectionState;
+  reason: string;
+};
+
 export type JoinOptions = {
   host: string;
   port: number;
@@ -38,6 +45,7 @@ export type JoinOptions = {
     clientId: bigint
   ) => ClientLike;
   lookupHost?: (hostname: string) => Promise<string>;
+  onConnectionStateChange?: (stateChange: JoinConnectionStateChange) => void;
 };
 
 export const joinBedrockServer = async (options: JoinOptions): Promise<void> => {
