@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { resolveJoinOptions, resolveScanOptions, type EnvironmentVariables } from "../../src/command-line/options.js";
+import { resolveJoinOptions, resolvePlayersOptions, resolveScanOptions, type EnvironmentVariables } from "../../src/command-line/options.js";
 import {
   DEFAULT_BEDROCK_PORT,
   DEFAULT_JOIN_TIMEOUT_MS,
   DEFAULT_NETHERNET_PORT,
+  DEFAULT_PLAYER_LIST_WAIT_MS,
   DEFAULT_RAKNET_BACKEND,
   MOVEMENT_GOAL_FOLLOW_PLAYER,
   MOVEMENT_GOAL_SAFE_WALK,
@@ -155,4 +156,61 @@ void test("resolveJoinOptions rejects invalid movement goal", () => {
 
 void test("resolveScanOptions rejects invalid transport", () => {
   assert.throws(() => resolveScanOptions({ ...emptyScanInput, transport: "invalid" }, emptyEnv));
+});
+
+void test("resolvePlayersOptions uses defaults", () => {
+  const options = resolvePlayersOptions({
+    host: undefined,
+    port: undefined,
+    name: undefined,
+    account: "user",
+    cacheDir: undefined,
+    keyFile: undefined,
+    joinTimeout: undefined,
+    forceRefresh: undefined,
+    skipPing: undefined,
+    raknetBackend: undefined,
+    discoveryTimeout: undefined,
+    transport: undefined,
+    wait: undefined
+  }, emptyEnv);
+  assert.equal(options.waitMs, DEFAULT_PLAYER_LIST_WAIT_MS);
+  assert.equal(options.transport, "nethernet");
+});
+
+void test("resolvePlayersOptions reads wait timeout from environment", () => {
+  const options = resolvePlayersOptions({
+    host: undefined,
+    port: undefined,
+    name: undefined,
+    account: "user",
+    cacheDir: undefined,
+    keyFile: undefined,
+    joinTimeout: undefined,
+    forceRefresh: undefined,
+    skipPing: undefined,
+    raknetBackend: undefined,
+    discoveryTimeout: undefined,
+    transport: undefined,
+    wait: undefined
+  }, { BEDCRAFT_PLAYERS_WAIT_MS: "9000" });
+  assert.equal(options.waitMs, 9000);
+});
+
+void test("resolvePlayersOptions rejects invalid wait timeout", () => {
+  assert.throws(() => resolvePlayersOptions({
+    host: undefined,
+    port: undefined,
+    name: undefined,
+    account: "user",
+    cacheDir: undefined,
+    keyFile: undefined,
+    joinTimeout: undefined,
+    forceRefresh: undefined,
+    skipPing: undefined,
+    raknetBackend: undefined,
+    discoveryTimeout: undefined,
+    transport: undefined,
+    wait: "bad"
+  }, emptyEnv));
 });

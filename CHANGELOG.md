@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- New `players` CLI command to join briefly, collect online player names from `player_list`/`add_player`, and disconnect automatically after a configurable wait window.
+
+### Changed
+
+- `join` runtime now supports dedicated player-list probe mode used by `players`, including bounded auto-disconnect timing.
+- Logger output now omits level fields entirely (`level`/`severity`) and keeps only payload + `time` + `msg`.
+
 ## [0.3.0] - 2026-02-21
 
 ### Added

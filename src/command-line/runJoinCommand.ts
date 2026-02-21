@@ -25,6 +25,9 @@ export type JoinCommandOptions = {
   skipPing: boolean;
   movementGoal: MovementGoal;
   followPlayerName: string | undefined;
+  listPlayersOnly?: boolean;
+  playerListWaitMs?: number;
+  onPlayerListUpdate?: (players: string[]) => void;
 };
 
 export type JoinDependencies = {
@@ -88,6 +91,9 @@ export const runJoinCommand = async (
     joinTimeoutMs: options.joinTimeoutMs,
     movementGoal: options.movementGoal,
     followPlayerName: options.followPlayerName,
+    ...(options.listPlayersOnly !== undefined ? { listPlayersOnly: options.listPlayersOnly } : {}),
+    ...(options.playerListWaitMs !== undefined ? { playerListWaitMs: options.playerListWaitMs } : {}),
+    ...(options.onPlayerListUpdate !== undefined ? { onPlayerListUpdate: options.onPlayerListUpdate } : {}),
     ...(options.minecraftVersion !== undefined ? { minecraftVersion: options.minecraftVersion } : {}),
     ...(target.nethernetServerId !== undefined ? { nethernetServerId: target.nethernetServerId } : {})
   });

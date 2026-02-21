@@ -4,6 +4,7 @@ import {
   DEFAULT_DISCOVERY_TIMEOUT_MS,
   DEFAULT_JOIN_TIMEOUT_MS,
   DEFAULT_NETHERNET_PORT,
+  DEFAULT_PLAYER_LIST_WAIT_MS,
   DEFAULT_RAKNET_BACKEND,
   MOVEMENT_GOAL_FOLLOW_PLAYER,
   MOVEMENT_GOAL_SAFE_WALK,
@@ -13,6 +14,7 @@ import {
   type RaknetBackend
 } from "../constants.js";
 import type { JoinCommandOptions } from "./runJoinCommand.js";
+import type { PlayersCommandOptions } from "./runPlayersCommand.js";
 import type { ScanCommandOptions } from "./runScanCommand.js";
 
 export type ScanInput = {
@@ -38,6 +40,22 @@ export type JoinInput = {
   transport: string | undefined;
   goal: string | undefined;
   followPlayer: string | undefined;
+};
+
+export type PlayersInput = {
+  host: string | undefined;
+  port: string | undefined;
+  name: string | undefined;
+  account: string | undefined;
+  cacheDir: string | undefined;
+  keyFile: string | undefined;
+  joinTimeout: string | undefined;
+  forceRefresh: boolean | undefined;
+  skipPing: boolean | undefined;
+  raknetBackend: string | undefined;
+  discoveryTimeout: string | undefined;
+  transport: string | undefined;
+  wait: string | undefined;
 };
 
 export type EnvironmentVariables = Record<string, string | undefined>;
@@ -112,5 +130,45 @@ export const resolveJoinOptions = (input: JoinInput, env: EnvironmentVariables):
     transport,
     movementGoal,
     followPlayerName
+  };
+};
+
+export const resolvePlayersOptions = (input: PlayersInput, env: EnvironmentVariables): PlayersCommandOptions => {
+  const joinOptions = resolveJoinOptions(
+    {
+      host: input.host,
+      port: input.port,
+      name: input.name,
+      account: input.account,
+      cacheDir: input.cacheDir,
+      keyFile: input.keyFile,
+      minecraftVersion: undefined,
+      joinTimeout: input.joinTimeout,
+      disconnectAfterFirstChunk: undefined,
+      forceRefresh: input.forceRefresh,
+      skipPing: input.skipPing,
+      raknetBackend: input.raknetBackend,
+      discoveryTimeout: input.discoveryTimeout,
+      transport: input.transport,
+      goal: MOVEMENT_GOAL_SAFE_WALK,
+      followPlayer: undefined
+    },
+    env
+  );
+  return {
+    accountName: joinOptions.accountName,
+    host: joinOptions.host,
+    port: joinOptions.port,
+    serverName: joinOptions.serverName,
+    transport: joinOptions.transport,
+    discoveryTimeoutMs: joinOptions.discoveryTimeoutMs,
+    cacheDirectory: joinOptions.cacheDirectory,
+    keyFilePath: joinOptions.keyFilePath,
+    environmentKey: joinOptions.environmentKey,
+    joinTimeoutMs: joinOptions.joinTimeoutMs,
+    forceRefresh: joinOptions.forceRefresh,
+    skipPing: joinOptions.skipPing,
+    raknetBackend: joinOptions.raknetBackend,
+    waitMs: parseNumber(input.wait ?? env["BEDCRAFT_PLAYERS_WAIT_MS"], DEFAULT_PLAYER_LIST_WAIT_MS, "player list wait timeout")
   };
 };

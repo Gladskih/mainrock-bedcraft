@@ -22,6 +22,9 @@ export type JoinOptions = {
   transport: "raknet" | "nethernet";
   movementGoal: MovementGoal;
   followPlayerName: string | undefined;
+  listPlayersOnly?: boolean;
+  playerListWaitMs?: number;
+  onPlayerListUpdate?: (players: string[]) => void;
   minecraftVersion?: string;
   joinTimeoutMs?: number;
   viewDistanceChunks?: number;

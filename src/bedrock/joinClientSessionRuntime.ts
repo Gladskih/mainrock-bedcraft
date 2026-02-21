@@ -1,51 +1,16 @@
 import { createClient } from "bedrock-protocol";
-import { randomBytes } from "node:crypto";
-import type { ClientOptions } from "bedrock-protocol";
-import {
-  DEFAULT_BOT_HEARTBEAT_INTERVAL_MS,
-  DEFAULT_CHUNK_PROGRESS_LOG_INTERVAL,
-  DEFAULT_JOIN_TIMEOUT_MS,
-  DEFAULT_REQUEST_CHUNK_RADIUS_DELAY_MS,
-  DEFAULT_VIEW_DISTANCE_CHUNKS
-} from "../constants.js";
-import type { AuthenticatedClientOptions } from "./authenticatedClientOptions.js";
+import { DEFAULT_BOT_HEARTBEAT_INTERVAL_MS, DEFAULT_CHUNK_PROGRESS_LOG_INTERVAL, DEFAULT_JOIN_TIMEOUT_MS, DEFAULT_PLAYER_LIST_SETTLE_MS, DEFAULT_PLAYER_LIST_WAIT_MS, DEFAULT_REQUEST_CHUNK_RADIUS_DELAY_MS, DEFAULT_VIEW_DISTANCE_CHUNKS } from "../constants.js";
 import { disconnectClient, isRecoverableReadError } from "./clientConnectionCleanup.js";
 import type { ClientLike } from "./clientTypes.js";
-import { getAvailableProgressionTasks, type ProgressionTaskId, type ResourceType } from "../bot/progressionPlan.js";
 import type { JoinOptions } from "./joinClient.js";
-import {
-  getProfileName,
-  isLevelChunkPacket,
-  isStartGamePacket,
-  isVector3,
-  readPacketId,
-  readOptionalStringField,
-  readPacketEventName,
-  toChunkKey,
-  toError,
-  type StartGamePacket,
-  type Vector3
-} from "./joinClientHelpers.js";
+import { getProfileName, isLevelChunkPacket, isStartGamePacket, isVector3, readPacketId, readOptionalStringField, readPacketEventName, toChunkKey, toError, type StartGamePacket, type Vector3 } from "./joinClientHelpers.js";
 import { configurePostJoinPackets } from "./postJoinPackets.js";
 import { createNethernetClient } from "./nethernetClientFactory.js";
 import { createPlayerTrackingState } from "./playerTrackingState.js";
-import { createSessionMovementLoop } from "./sessionMovementLoop.js";
-
-const toClientOptions = (options: JoinOptions): AuthenticatedClientOptions => ({
-  host: options.host,
-  port: options.port,
-  username: options.accountName,
-  authflow: options.authflow,
-  flow: "live",
-  deviceType: "Nintendo",
-  skipPing: options.skipPing,
-  raknetBackend: options.raknetBackend,
-  viewDistance: options.viewDistanceChunks ?? DEFAULT_VIEW_DISTANCE_CHUNKS,
-  ...(options.minecraftVersion ? { version: options.minecraftVersion as unknown as NonNullable<ClientOptions["version"]> } : {}),
-  conLog: null
-});
-
-const createRandomSenderId = (): bigint => randomBytes(8).readBigUInt64BE();
+import { createPlayerListState } from "./playerListState.js";
+import { createPlayerListProbe } from "./playerListProbe.js";
+import { createRandomSenderId, toClientOptions } from "./sessionClientOptions.js";
+import { startSessionMovementLoopWithPlanner } from "./sessionMovementPlanner.js";
 export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> => new Promise((resolve, reject) => {
     const resolvedClientFactory = resolvedOptions.transport === "nethernet"
     ? () => {
@@ -63,14 +28,38 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
     let firstChunk = false;
     let finished = false;
     let shutdownRequested = false;
+    let authenticatedPlayerName: string | null = null;
     let chunkPacketCount = 0;
     let inputTick = 0n;
     let currentPosition: Vector3 | null = null;
     let movementLoop: { cleanup: () => void } | null = null;
     let runtimeHeartbeatId: ReturnType<typeof setInterval> | null = null;
     const playerTrackingState = createPlayerTrackingState(resolvedOptions.logger, resolvedOptions.followPlayerName);
-    const completedTaskIds = new Set<ProgressionTaskId>();
-    const discoveredResources = new Set<ResourceType>();
+    const listPlayersOnly = resolvedOptions.listPlayersOnly ?? false;
+    const playerListWaitMs = resolvedOptions.playerListWaitMs ?? DEFAULT_PLAYER_LIST_WAIT_MS;
+    const playerListProbe = createPlayerListProbe({
+      enabled: listPlayersOnly,
+      maxWaitMs: playerListWaitMs,
+      settleWaitMs: DEFAULT_PLAYER_LIST_SETTLE_MS,
+      onElapsed: () => {
+        finish();
+        disconnectClient(client);
+      }
+    });
+    const handlePlayerListUpdate = listPlayersOnly
+      ? (players: string[]) => {
+        resolvedOptions.onPlayerListUpdate?.(players);
+        if (authenticatedPlayerName && players.some((name) => name !== authenticatedPlayerName)) {
+          playerListProbe.completeNow();
+          return;
+        }
+        if (players.length === 0) return;
+        playerListProbe.notePlayersObserved();
+      }
+      : (players: string[]) => {
+        resolvedOptions.onPlayerListUpdate?.(players);
+      };
+    const playerListState = createPlayerListState({ onUpdate: handlePlayerListUpdate });
     const loadedChunks = new Set<string>();
     const joinTimeoutMs = resolvedOptions.joinTimeoutMs ?? DEFAULT_JOIN_TIMEOUT_MS;
     const viewDistanceChunks = resolvedOptions.viewDistanceChunks ?? DEFAULT_VIEW_DISTANCE_CHUNKS;
@@ -151,12 +140,49 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
       process.removeListener("SIGINT", handleSignal);
       removeProcessErrorHandlers();
       clearJoinTimeout();
+      playerListProbe.clear();
       if (runtimeHeartbeatId) clearInterval(runtimeHeartbeatId);
       runtimeHeartbeatId = null;
       movementLoop?.cleanup();
       movementLoop = null;
       postJoin.cleanup();
     };
+    const handleJoinAuthenticated = listPlayersOnly ? () => {
+      clearJoinTimeout();
+      playerListProbe.start();
+    } : () => undefined;
+    const handleFirstChunk = resolvedOptions.disconnectAfterFirstChunk
+      ? () => {
+        finish();
+        disconnectClient(client);
+      }
+      : listPlayersOnly
+        ? () => undefined
+        : () => {
+          startRuntimeHeartbeat();
+          movementLoop = startSessionMovementLoopWithPlanner({
+            client,
+            resolvedOptions,
+            playerTrackingState,
+            getPosition: () => currentPosition,
+            getTick: () => {
+              inputTick += 1n;
+              return inputTick;
+            },
+            setPosition: (position) => {
+              currentPosition = position;
+            }
+          });
+        };
+    const handleChunkProgress = listPlayersOnly
+      ? () => undefined
+      : () => {
+        if (chunkPacketCount % chunkProgressLogInterval !== 0) return;
+        resolvedOptions.logger.info(
+          { event: "chunk_progress", chunkPackets: chunkPacketCount, uniqueChunks: loadedChunks.size },
+          "Streaming world chunks"
+        );
+      };
     process.once("SIGINT", handleSignal);
     process.on("uncaughtException", handleUncaughtException);
     process.on("unhandledRejection", handleUnhandledRejection);
@@ -189,7 +215,9 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
       resolvedOptions.logger.info({ event: "play_status", status: readOptionalStringField(packet, "status") }, "Received play status");
     });
     client.on("join", () => {
-      resolvedOptions.logger.info({ event: "join", playerName: getProfileName(client) }, "Authenticated with server");
+      authenticatedPlayerName = getProfileName(client);
+      resolvedOptions.logger.info({ event: "join", playerName: authenticatedPlayerName }, "Authenticated with server");
+      handleJoinAuthenticated();
     });
     client.on("start_game", (packet) => {
       if (!isStartGamePacket(packet)) return;
@@ -222,6 +250,10 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
     });
     client.on("add_player", (packet) => {
       playerTrackingState.handleAddPlayerPacket(packet);
+      playerListState.handleAddPlayerPacket(packet);
+    });
+    client.on("player_list", (packet) => {
+      playerListState.handlePlayerListPacket(packet);
     });
     client.on("remove_entity", (packet) => {
       playerTrackingState.handleRemoveEntityPacket(packet);
@@ -234,43 +266,14 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
       if (!firstChunk) {
         firstChunk = true;
         clearJoinTimeout();
-        startRuntimeHeartbeat();
         resolvedOptions.logger.info(
           { event: "chunk", chunkX: packet.x, chunkZ: packet.z, chunkPackets: chunkPacketCount, uniqueChunks: loadedChunks.size },
           "Received first chunk"
         );
-        if (resolvedOptions.disconnectAfterFirstChunk) {
-          finish();
-          disconnectClient(client);
-        } else {
-          movementLoop = createSessionMovementLoop({
-            client,
-            logger: resolvedOptions.logger,
-            movementGoal: resolvedOptions.movementGoal,
-            followPlayerName: resolvedOptions.followPlayerName,
-            getFollowTargetPosition: () => playerTrackingState.resolveFollowTargetPosition(),
-            getPosition: () => currentPosition,
-            setPosition: (position) => {
-              currentPosition = position;
-            },
-            getTick: () => {
-              inputTick += 1n;
-              return inputTick;
-            }
-          });
-          const initialTasks = getAvailableProgressionTasks(
-            completedTaskIds,
-            discoveredResources
-          ).map((task) => task.id);
-          resolvedOptions.logger.info({ event: "planner_bootstrap", nextTaskIds: initialTasks }, "Initialized progression planner");
-        }
+        handleFirstChunk();
         return;
       }
-      if (chunkPacketCount % chunkProgressLogInterval !== 0) return;
-      resolvedOptions.logger.info(
-        { event: "chunk_progress", chunkPackets: chunkPacketCount, uniqueChunks: loadedChunks.size },
-        "Streaming world chunks"
-      );
+      handleChunkProgress();
     });
     client.on("close", (reason) => {
       if (finished) return;

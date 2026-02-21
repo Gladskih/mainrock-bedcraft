@@ -73,6 +73,12 @@ Follow a specific player once visible to the bot:
 npm run join -- --name "My Server" --account "my-account" --goal follow-player --follow-player "TargetPlayer"
 ```
 
+Probe current online player names (join briefly, collect `player_list`, then disconnect):
+
+```bash
+npm run players -- --name "My Server" --account "my-account" --wait 10000
+```
+
 Default behavior: `join` stays connected, keeps receiving chunk stream updates, and runs until you stop the process (for example, `Ctrl+C`).
 While connected, the bot uses `--goal safe-walk` by default and sends paced `player_auth_input` packets.
 In `follow-player` mode, if the target player is not yet visible in server entity packets, the bot patrols and keeps searching.
@@ -106,6 +112,7 @@ npm run build
 - `BEDCRAFT_RAKNET_BACKEND`: `native|node` or `raknet-native|raknet-node` (defaults to `raknet-native`).
 - `BEDCRAFT_GOAL`: `safe-walk|follow-player` (defaults to `safe-walk`).
 - `BEDCRAFT_FOLLOW_PLAYER`: Target player name for `follow-player` goal.
+- `BEDCRAFT_PLAYERS_WAIT_MS`: Probe window for `players` command after login.
 
 ## Authentication and Cache
 
@@ -150,7 +157,7 @@ npm run test:coverage
 - Uses Bedrock LAN discovery + status ping only; no gameplay packets in `scan`.
 - No access to Minecraft installation files or UWP identity.
 - Safe defaults: limited ping frequency, clean disconnect after validation.
-- Logs are compact JSON with `time` and `severity` fields (plus payload and `msg`).
+- Logs are compact JSON with `time` (plus payload and `msg`) and intentionally omit level fields (`level`/`severity`).
 
 ## Project Policies
 

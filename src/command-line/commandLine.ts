@@ -1,22 +1,27 @@
 import { Command } from "commander";
 import type { Logger } from "pino";
 import { APPLICATION_ID } from "../constants.js";
-import { resolveJoinOptions, resolveScanOptions } from "./options.js";
+import { resolveJoinOptions, resolvePlayersOptions, resolveScanOptions } from "./options.js";
 import { runJoinCommand } from "./runJoinCommand.js";
+import { runPlayersCommand } from "./runPlayersCommand.js";
 import { runScanCommand } from "./runScanCommand.js";
 
 export type CommandLineDependencies = {
   resolveScanOptions: typeof resolveScanOptions;
   resolveJoinOptions: typeof resolveJoinOptions;
+  resolvePlayersOptions: typeof resolvePlayersOptions;
   runScanCommand: typeof runScanCommand;
   runJoinCommand: typeof runJoinCommand;
+  runPlayersCommand: typeof runPlayersCommand;
 };
 
 const defaultCommandLineDependencies: CommandLineDependencies = {
   resolveScanOptions,
   resolveJoinOptions,
+  resolvePlayersOptions,
   runScanCommand,
-  runJoinCommand
+  runJoinCommand,
+  runPlayersCommand
 };
 
 export const createCommandLineProgram = (
@@ -108,6 +113,61 @@ export const createCommandLineProgram = (
         );
       } catch (error) {
         logger.error({ event: "join_error", error: error instanceof Error ? error.message : String(error) }, "Join failed");
+        process.exitCode = 1;
+      }
+    });
+  program
+    .command("players")
+    .description("Join briefly and print online player names")
+    .option("--host <host>", "Server host to connect to")
+    .option("--port <port>", "Server port to connect to")
+    .option("--name <name>", "Server name to select via LAN discovery")
+    .option("--transport <transport>", "Transport: nethernet|raknet")
+    .option("--account <account>", "Account identifier for token cache")
+    .option("--cache-dir <path>", "Override cache directory path")
+    .option("--key-file <path>", "Override protected cache key blob file path")
+    .option("--join-timeout <ms>", "Join timeout in milliseconds")
+    .option("--force-refresh", "Force refresh cached tokens")
+    .option("--skip-ping", "Skip initial ping before connecting")
+    .option("--raknet-backend <backend>", "RakNet backend: native|node")
+    .option("--discovery-timeout <ms>", "LAN discovery timeout in milliseconds")
+    .option("--wait <ms>", "How long to wait for player list updates after login")
+    .action(async (options: {
+      host?: string;
+      port?: string;
+      name?: string;
+      transport?: string;
+      account?: string;
+      cacheDir?: string;
+      keyFile?: string;
+      joinTimeout?: string;
+      forceRefresh?: boolean;
+      skipPing?: boolean;
+      raknetBackend?: string;
+      discoveryTimeout?: string;
+      wait?: string;
+    }) => {
+      try {
+        await dependencies.runPlayersCommand(
+          dependencies.resolvePlayersOptions({
+            host: options.host,
+            port: options.port,
+            name: options.name,
+            transport: options.transport,
+            account: options.account,
+            cacheDir: options.cacheDir,
+            keyFile: options.keyFile,
+            joinTimeout: options.joinTimeout,
+            forceRefresh: options.forceRefresh,
+            skipPing: options.skipPing,
+            raknetBackend: options.raknetBackend,
+            discoveryTimeout: options.discoveryTimeout,
+            wait: options.wait
+          }, process.env),
+          logger
+        );
+      } catch (error) {
+        logger.error({ event: "players_error", error: error instanceof Error ? error.message : String(error) }, "Players probe failed");
         process.exitCode = 1;
       }
     });

@@ -20,7 +20,8 @@
     "test:quick": "npm run test:module -- tests/unit/joinClient.test.ts",
     "test:coverage": "c8 --config .c8rc.json tsx --test tests/unit/**/*.ts",
     "scan": "npm run build --silent && node dist/cli.js scan",
-    "join": "npm run build --silent && node dist/cli.js join"
+    "join": "npm run build --silent && node dist/cli.js join",
+    "players": "npm run build --silent && node dist/cli.js players"
   },
   "dependencies": {
     "bedrock-protocol": "^3.53.0",
