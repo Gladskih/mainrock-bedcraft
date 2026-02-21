@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import type nodeDataChannelType from "node-datachannel";
 import type { DataChannelInitConfig, DescriptionType } from "node-datachannel";
 import type { Logger } from "pino";
-import { DEFAULT_NETHERNET_PORT, NETHERNET_MAX_SEGMENT_BYTES } from "../constants.js";
+import { APPLICATION_ID, DEFAULT_NETHERNET_PORT, NETHERNET_MAX_SEGMENT_BYTES } from "../constants.js";
 import { decodeDiscoveryPacket, encodeDiscoveryPacket } from "./discoveryPackets.js";
 import { NethernetSegmentReassembler, splitNethernetPayload } from "./segmentation.js";
 import type { DataChannelLike, DatagramRemoteInfo, DatagramSocketLike, EncapsulatedPacketLike, PeerConnectionLike } from "./nethernetRakClientTypes.js";
@@ -49,7 +49,7 @@ export type NethernetRakClientDependencies = {
 const createPeerConnection = (): PeerConnectionLike => {
   const nodeDataChannel = getNodeDataChannel();
   nodeDataChannel.preload();
-  return new nodeDataChannel.PeerConnection("bedcraft", { iceServers: [] });
+  return new nodeDataChannel.PeerConnection(APPLICATION_ID, { iceServers: [] });
 };
 
 const defaultNethernetRakClientDependencies: NethernetRakClientDependencies = {

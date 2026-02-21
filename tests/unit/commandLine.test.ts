@@ -35,7 +35,7 @@ void test("command line scan dispatches to handler", async () => {
     },
     runJoinCommand: async () => undefined
   });
-  await program.parseAsync(["node", "bedcraft", "scan"]);
+  await program.parseAsync(["node", "mainrock-bedcraft", "scan"]);
   assert.equal(called, true);
 });
 
@@ -65,7 +65,7 @@ void test("command line join dispatches to handler", async () => {
       called = true;
     }
   });
-  await program.parseAsync(["node", "bedcraft", "join", "--host", "127.0.0.1", "--account", "user"]);
+  await program.parseAsync(["node", "mainrock-bedcraft", "join", "--host", "127.0.0.1", "--account", "user"]);
   assert.equal(called, true);
 });
 
@@ -95,7 +95,7 @@ void test("command line scan sets exit code on error", async () => {
     },
     runJoinCommand: async () => undefined
   });
-  await program.parseAsync(["node", "bedcraft", "scan"]);
+  await program.parseAsync(["node", "mainrock-bedcraft", "scan"]);
   assert.equal(process.exitCode, 1);
   process.exitCode = previousExitCode;
 });
@@ -126,7 +126,7 @@ void test("command line join sets exit code on error", async () => {
       throw new Error("join");
     }
   });
-  await program.parseAsync(["node", "bedcraft", "join", "--host", "127.0.0.1", "--account", "user"]);
+  await program.parseAsync(["node", "mainrock-bedcraft", "join", "--host", "127.0.0.1", "--account", "user"]);
   assert.equal(process.exitCode, 1);
   process.exitCode = previousExitCode;
 });
@@ -157,7 +157,7 @@ void test("command line scan handles non-error rejection", async () => {
     },
     runJoinCommand: async () => undefined
   });
-  await program.parseAsync(["node", "bedcraft", "scan"]);
+  await program.parseAsync(["node", "mainrock-bedcraft", "scan"]);
   assert.equal(process.exitCode, 1);
   process.exitCode = previousExitCode;
 });
@@ -188,7 +188,7 @@ void test("command line join handles non-error rejection", async () => {
       throw "join";
     }
   });
-  await program.parseAsync(["node", "bedcraft", "join", "--host", "127.0.0.1", "--account", "user"]);
+  await program.parseAsync(["node", "mainrock-bedcraft", "join", "--host", "127.0.0.1", "--account", "user"]);
   assert.equal(process.exitCode, 1);
   process.exitCode = previousExitCode;
 });

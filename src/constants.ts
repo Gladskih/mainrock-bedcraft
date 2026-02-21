@@ -1,3 +1,4 @@
+export const APPLICATION_ID = "mainrock-bedcraft"; // Canonical project identifier for CLI name, logging, cache namespace, and runtime labels.
 export const DEFAULT_BEDROCK_PORT = 19132; // Default Bedrock UDP port used by servers.
 export const DEFAULT_LAN_DISCOVERY_PORT = 4445; // Bedrock LAN discovery UDP port for MCPE advertisements (multicast to 224.0.2.60).
 export const DEFAULT_NETHERNET_PORT = 7551; // NetherNet LAN discovery/signaling UDP port.

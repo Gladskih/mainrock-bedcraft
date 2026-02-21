@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-02-21
+
 ### Added
 
 - Windows DPAPI codec and key storage abstraction for authentication cache encryption keys.

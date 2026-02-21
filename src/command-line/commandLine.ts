@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import type { Logger } from "pino";
+import { APPLICATION_ID } from "../constants.js";
 import { resolveJoinOptions, resolveScanOptions } from "./options.js";
 import { runJoinCommand } from "./runJoinCommand.js";
 import { runScanCommand } from "./runScanCommand.js";
@@ -23,7 +24,7 @@ export const createCommandLineProgram = (
   dependencies: CommandLineDependencies = defaultCommandLineDependencies
 ): Command => {
   const program = new Command();
-  program.name("bedcraft");
+  program.name(APPLICATION_ID);
   program.description("Bedrock LAN discovery and join MVP");
   program.showHelpAfterError();
   program

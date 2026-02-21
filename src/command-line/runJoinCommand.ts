@@ -1,5 +1,5 @@
 import type { Logger } from "pino";
-import { type RaknetBackend } from "../constants.js";
+import { APPLICATION_ID, type RaknetBackend } from "../constants.js";
 import { createAuthFlow } from "../authentication/authFlow.js";
 import { resolveCachePaths } from "../authentication/cachePaths.js";
 import { discoverLanServers } from "../bedrock/lanDiscovery.js";
@@ -48,7 +48,7 @@ export const runJoinCommand = async (
   logger: Logger,
   dependencies: JoinDependencies = defaultJoinDependencies
 ): Promise<void> => {
-  const cachePaths = dependencies.resolveCachePaths("bedcraft");
+  const cachePaths = dependencies.resolveCachePaths(APPLICATION_ID);
   const cacheDirectory = options.cacheDirectory ?? cachePaths.cacheDirectory;
   const keyFilePath = options.keyFilePath ?? cachePaths.keyFilePath;
   if (!options.host && !options.serverName) throw new Error("Either host or server name must be provided");
