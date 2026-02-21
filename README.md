@@ -73,10 +73,22 @@ Follow a specific player once visible to the bot:
 npm run join -- --name "My Server" --account "my-account" --goal follow-player --follow-player "TargetPlayer"
 ```
 
+Follow world coordinates (accepts `x y z`, `x,y,z`, or `x;y;z`):
+
+```bash
+npm run join -- --name "My Server" --account "my-account" --goal follow-coordinates --follow-coordinates "-2962 65 -2100"
+```
+
 Enable capped reconnect retries with jittered exponential backoff:
 
 ```bash
 npm run join -- --name "My Server" --account "my-account" --reconnect-retries 3 --reconnect-base-delay 1000 --reconnect-max-delay 8000
+```
+
+Override chunk radius soft cap (in chunks) for weak/strong hardware:
+
+```bash
+npm run join -- --name "My Server" --account "my-account" --chunk-radius 12
 ```
 
 Probe current online player names (join briefly, collect `player_list`, then disconnect):
@@ -88,6 +100,10 @@ npm run players -- --name "My Server" --account "my-account" --wait 10000
 Default behavior: `join` stays connected, keeps receiving chunk stream updates, and runs until you stop the process (for example, `Ctrl+C`).
 While connected, the bot uses `--goal safe-walk` by default and sends paced `player_auth_input` packets.
 In `follow-player` mode, if the target player is not yet visible in server entity packets, the bot patrols and keeps searching.
+In `follow-coordinates` mode, the bot moves toward static target coordinates and holds position on arrival distance.
+Follow movement now includes reactive safety recovery: sudden descent or dangerous local air/health updates trigger temporary jump/retreat behavior before pursuit resumes.
+If the requested follow nickname is not visible but there is exactly one remote tracked player, the bot temporarily follows that player and switches back to exact nickname match as soon as it appears.
+Repeated hazard signals within a short window trigger a panic-recovery hold to reduce repeated lava/water/cliff exposure.
 
 ## Development Commands
 
@@ -116,9 +132,11 @@ npm run build
 - `BEDCRAFT_SKIP_PING`: Set to `true` to skip the initial ping before join.
 - `BEDCRAFT_DISCONNECT_AFTER_FIRST_CHUNK`: Set to `true` to keep legacy one-shot join behavior.
 - `BEDCRAFT_RAKNET_BACKEND`: `native|node` or `raknet-native|raknet-node` (defaults to `raknet-native`).
-- `BEDCRAFT_GOAL`: `safe-walk|follow-player` (defaults to `safe-walk`).
+- `BEDCRAFT_GOAL`: `safe-walk|follow-player|follow-coordinates` (defaults to `safe-walk`).
 - `BEDCRAFT_FOLLOW_PLAYER`: Target player name for `follow-player` goal.
+- `BEDCRAFT_FOLLOW_COORDINATES`: Target world coordinates for `follow-coordinates` goal.
 - `BEDCRAFT_PLAYERS_WAIT_MS`: Probe window for `players` command after login.
+- `BEDCRAFT_CHUNK_RADIUS`: Chunk radius soft cap in chunks (default is derived from system memory profile).
 - `BEDCRAFT_RECONNECT_MAX_RETRIES`: Maximum reconnect retries after a failed join attempt.
 - `BEDCRAFT_RECONNECT_BASE_DELAY_MS`: Base reconnect delay in milliseconds.
 - `BEDCRAFT_RECONNECT_MAX_DELAY_MS`: Maximum reconnect delay cap in milliseconds.
@@ -167,6 +185,8 @@ npm run test:coverage
 - No access to Minecraft installation files or UWP identity.
 - Safe defaults: limited ping frequency, clean disconnect after validation.
 - Logs are compact JSON with `time` (plus payload and `msg`) and intentionally omit level fields (`level`/`severity`).
+- Join runtime logs include explicit server/world parameters and chunk radius negotiation (`chunk_radius_probe_request`, `chunk_radius_update`, `chunk_radius_cap_request`, `chunk_publisher_update`).
+- Runtime heartbeat logs include server-reported local position plus local simulated movement position (`simulatedPosition`) and follow distance (`followCoordinatesDistanceBlocks`) in follow-coordinates mode.
 - `join` emits deterministic `join_state` transitions for recovery observability (`offline` -> `auth_ready` -> `discovering` -> `connecting` -> `online`/`retry_waiting`/`failed`).
 
 ## Project Policies

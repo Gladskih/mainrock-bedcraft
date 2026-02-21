@@ -15,11 +15,22 @@ This document defines incremental delivery for a Bedrock LAN bot that runs on to
 ## Delivery Strategy
 
 1. Build a reliable online runtime first.
-2. Add observability and world-state ingestion.
-3. Add safe movement primitives and action pacing.
-4. Add resource-aware planning and execution.
-5. Add hazard handling (liquids, falling blocks, mobs).
+2. Prioritize safe `follow-player` behavior (avoid drowning/falls/lava) using reactive safety before full chunk/pathfinding stack.
+3. Add observability and world-state ingestion.
+4. Add safe movement primitives and action pacing.
+5. Add resource-aware planning and execution.
 6. Add strategy layer (goal selection profiles).
+
+## Safe Follow Fast Track
+
+- [x] Follow target tracking via `add_player`/`move_player` entity packets.
+- [x] Patrol fallback when target is temporarily unknown.
+- [x] Single-remote-player fallback targeting when requested nickname is not visible yet.
+- [x] Reactive movement safety: emergency recovery on sudden/continuous descent and low-air/health danger signals.
+- [x] Safety circuit-breaker: repeated danger strikes trigger temporary panic recovery before pursuit resumes.
+- [ ] Chunk-aware hazard map for lava/water/cliff avoidance on planned movement.
+- [ ] Short-horizon replanning around dangerous blocks while keeping follow distance.
+- [ ] Add end-to-end LAN scenario tests for "follow player without drowning/falling".
 
 ## Phase 0: Runtime Reliability
 
@@ -29,6 +40,7 @@ This document defines incremental delivery for a Bedrock LAN bot that runs on to
 - [x] Stream chunks after first chunk and log bounded progress events.
 - [x] Add reconnect policy with capped retries and jitter.
 - [x] Add explicit offline/online state machine with recovery transitions.
+- [x] Add explicit session observability for world/server parameters and chunk-radius negotiation.
 
 ## Phase 1: World State Ingestion
 
@@ -103,4 +115,7 @@ This document defines incremental delivery for a Bedrock LAN bot that runs on to
 - This iteration introduces `src/bot/worldState.ts` as immutable world snapshot storage for upcoming ingestion and navigation layers.
 - This iteration wires local bot pose updates into `BotWorldState` from authoritative `start_game` and `move_player` packets.
 - This iteration also wires nearby entity lifecycle updates into `BotWorldState` from `add_player`, `add_entity`, `move_player`, `move_actor_absolute`, `move_entity`, and `remove_entity` packets.
+- This iteration adds reactive movement safety recovery for safe-follow priority (drop/descent detection + low-air/health emergency handling).
+- This iteration adds fallback follow-target selection: if explicit nickname is missing and exactly one remote player is tracked, follow that player temporarily.
+- This iteration adds repeated-danger panic recovery to pause pursuit after clustered air/health/terrain hazard signals.
 - Resource scanning, navigation, and gameplay execution are intentionally staged for subsequent increments to keep behavior measurable and safe.
