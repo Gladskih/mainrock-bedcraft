@@ -33,7 +33,7 @@ This document defines incremental delivery for a Bedrock LAN bot that runs on to
 ## Phase 1: World State Ingestion
 
 - [x] Introduce `BotWorldState` module with immutable snapshots.
-- [ ] Track bot pose from authoritative server movement packets.
+- [x] Track bot pose from authoritative server movement packets.
 - [ ] Track nearby entities with add/update/remove lifecycle.
 - [ ] Decode chunk payloads into block-access API.
 - [ ] Build block query primitives: `getBlock`, `isSolid`, `isLiquid`, `isPassable`.
@@ -101,4 +101,5 @@ This document defines incremental delivery for a Bedrock LAN bot that runs on to
 - This iteration also ships the first goal variant: `follow-player` with packet-based target tracking and patrol fallback while the target is out of range.
 - This iteration also adds explicit join runtime state transitions (`offline/auth_ready/discovering/connecting/online/retry_waiting/failed`) for deterministic recovery visibility.
 - This iteration introduces `src/bot/worldState.ts` as immutable world snapshot storage for upcoming ingestion and navigation layers.
+- This iteration wires local bot pose updates into `BotWorldState` from authoritative `start_game` and `move_player` packets.
 - Resource scanning, navigation, and gameplay execution are intentionally staged for subsequent increments to keep behavior measurable and safe.

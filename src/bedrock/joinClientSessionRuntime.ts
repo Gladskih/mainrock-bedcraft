@@ -11,6 +11,7 @@ import { createPlayerListState } from "./playerListState.js";
 import { createPlayerListProbe } from "./playerListProbe.js";
 import { createRandomSenderId, toClientOptions } from "./sessionClientOptions.js";
 import { startSessionMovementLoopWithPlanner } from "./sessionMovementPlanner.js";
+import { createBotWorldState } from "../bot/worldState.js";
 export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> => new Promise((resolve, reject) => {
     const resolvedClientFactory = resolvedOptions.transport === "nethernet"
     ? () => {
@@ -34,6 +35,7 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
     let currentPosition: Vector3 | null = null;
     let movementLoop: { cleanup: () => void } | null = null;
     let runtimeHeartbeatId: ReturnType<typeof setInterval> | null = null;
+    const botWorldState = createBotWorldState();
     const playerTrackingState = createPlayerTrackingState(resolvedOptions.logger, resolvedOptions.followPlayerName);
     const listPlayersOnly = resolvedOptions.listPlayersOnly ?? false;
     const playerListWaitMs = resolvedOptions.playerListWaitMs ?? DEFAULT_PLAYER_LIST_WAIT_MS;
@@ -94,12 +96,14 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
     const startRuntimeHeartbeat = () => {
       if (runtimeHeartbeatId) return;
       runtimeHeartbeatId = setInterval(() => {
+        const botWorldSnapshot = botWorldState.getSnapshot();
         resolvedOptions.logger.info(
           {
             event: "runtime_heartbeat",
             chunkPackets: chunkPacketCount,
             uniqueChunks: loadedChunks.size,
-            dimension: startGamePacket?.dimension ?? null
+            dimension: botWorldSnapshot.localPlayer.dimension,
+            position: botWorldSnapshot.localPlayer.position
           },
           "Bot runtime heartbeat"
         );
@@ -207,17 +211,12 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
       packetLogs += 1;
       resolvedOptions.logger.debug({ event: "packet_in", name }, "Received packet");
     });
-    client.on("loggingIn", () => {
-      resolvedOptions.logger.info({ event: "logging_in" }, "Sending login");
-    });
-    client.on("client.server_handshake", () => {
-      resolvedOptions.logger.info({ event: "server_handshake" }, "Received server handshake");
-    });
-    client.on("play_status", (packet) => {
-      resolvedOptions.logger.info({ event: "play_status", status: readOptionalStringField(packet, "status") }, "Received play status");
-    });
+    client.on("loggingIn", () => { resolvedOptions.logger.info({ event: "logging_in" }, "Sending login"); });
+    client.on("client.server_handshake", () => { resolvedOptions.logger.info({ event: "server_handshake" }, "Received server handshake"); });
+    client.on("play_status", (packet) => { resolvedOptions.logger.info({ event: "play_status", status: readOptionalStringField(packet, "status") }, "Received play status"); });
     client.on("join", () => {
       authenticatedPlayerName = getProfileName(client);
+      botWorldState.setLocalIdentity(null, authenticatedPlayerName);
       resolvedOptions.onConnectionStateChange?.({ state: "online", reason: "join_authenticated" });
       resolvedOptions.logger.info({ event: "join", playerName: authenticatedPlayerName }, "Authenticated with server");
       handleJoinAuthenticated();
@@ -228,6 +227,8 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
       const localRuntimeEntityId = readPacketId(packet, ["runtime_entity_id", "runtime_id"]);
       playerTrackingState.setLocalRuntimeEntityId(localRuntimeEntityId);
       const position = isVector3(packet.player_position) ? packet.player_position : null;
+      botWorldState.setLocalIdentity(localRuntimeEntityId, authenticatedPlayerName);
+      botWorldState.setLocalPose(packet.dimension ?? null, position);
       currentPosition = position;
       resolvedOptions.logger.info(
         {
@@ -284,6 +285,7 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
     client.on("move_player", (packet) => {
       playerTrackingState.handleMovePlayerPacket(packet, (position) => {
         currentPosition = position;
+        botWorldState.setLocalPose(botWorldState.getSnapshot().localPlayer.dimension, position);
       });
     });
     client.on("error", (error) => {
