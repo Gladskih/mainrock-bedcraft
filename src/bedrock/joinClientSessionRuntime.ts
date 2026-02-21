@@ -3,7 +3,7 @@ import { DEFAULT_BOT_HEARTBEAT_INTERVAL_MS, DEFAULT_CHUNK_PROGRESS_LOG_INTERVAL,
 import { disconnectClient, isRecoverableReadError } from "./clientConnectionCleanup.js";
 import type { ClientLike } from "./clientTypes.js";
 import type { JoinOptions } from "./joinClient.js";
-import { getProfileName, isLevelChunkPacket, isStartGamePacket, isVector3, readPacketId, readOptionalStringField, readPacketEventName, toChunkKey, toError, type StartGamePacket, type Vector3 } from "./joinClientHelpers.js";
+import { getProfileName, isLevelChunkPacket, isStartGamePacket, isVector3, readPacketId, readOptionalStringField, readPacketEventName, toChunkKey, toError, type Vector3 } from "./joinClientHelpers.js";
 import { configurePostJoinPackets } from "./postJoinPackets.js";
 import { createNethernetClient } from "./nethernetClientFactory.js";
 import { createPlayerTrackingState } from "./playerTrackingState.js";
@@ -11,7 +11,7 @@ import { createPlayerListState } from "./playerListState.js";
 import { createPlayerListProbe } from "./playerListProbe.js";
 import { createRandomSenderId, toClientOptions } from "./sessionClientOptions.js";
 import { startSessionMovementLoopWithPlanner } from "./sessionMovementPlanner.js";
-import { createBotWorldState } from "../bot/worldState.js";
+import { createWorldStateBridge } from "./worldStateBridge.js";
 export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> => new Promise((resolve, reject) => {
     const resolvedClientFactory = resolvedOptions.transport === "nethernet"
     ? () => {
@@ -25,7 +25,6 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
     }
     : () => (resolvedOptions.clientFactory ?? createClient)(toClientOptions(resolvedOptions)) as ClientLike;
     const client = resolvedClientFactory();
-    let startGamePacket: StartGamePacket | null = null;
     let firstChunk = false;
     let finished = false;
     let shutdownRequested = false;
@@ -35,7 +34,10 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
     let currentPosition: Vector3 | null = null;
     let movementLoop: { cleanup: () => void } | null = null;
     let runtimeHeartbeatId: ReturnType<typeof setInterval> | null = null;
-    const botWorldState = createBotWorldState();
+    const worldStateBridge = createWorldStateBridge();
+    const setCurrentPosition = (position: Vector3): void => {
+      currentPosition = position;
+    };
     const playerTrackingState = createPlayerTrackingState(resolvedOptions.logger, resolvedOptions.followPlayerName);
     const listPlayersOnly = resolvedOptions.listPlayersOnly ?? false;
     const playerListWaitMs = resolvedOptions.playerListWaitMs ?? DEFAULT_PLAYER_LIST_WAIT_MS;
@@ -43,10 +45,7 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
       enabled: listPlayersOnly,
       maxWaitMs: playerListWaitMs,
       settleWaitMs: DEFAULT_PLAYER_LIST_SETTLE_MS,
-      onElapsed: () => {
-        finish();
-        disconnectClient(client);
-      }
+      onElapsed: () => { finish(); disconnectClient(client); }
     });
     const handlePlayerListUpdate = listPlayersOnly
       ? (players: string[]) => {
@@ -96,7 +95,7 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
     const startRuntimeHeartbeat = () => {
       if (runtimeHeartbeatId) return;
       runtimeHeartbeatId = setInterval(() => {
-        const botWorldSnapshot = botWorldState.getSnapshot();
+        const botWorldSnapshot = worldStateBridge.getSnapshot();
         resolvedOptions.logger.info(
           {
             event: "runtime_heartbeat",
@@ -109,14 +108,8 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
         );
       }, runtimeHeartbeatIntervalMs);
     };
-    const handleUncaughtException = (error: Error) => {
-      fail(toError(error));
-      disconnectClient(client);
-    };
-    const handleUnhandledRejection = (reason: unknown) => {
-      fail(toError(reason));
-      disconnectClient(client);
-    };
+    const handleUncaughtException = (error: Error) => { fail(toError(error)); disconnectClient(client); };
+    const handleUnhandledRejection = (reason: unknown) => { fail(toError(reason)); disconnectClient(client); };
     const removeProcessErrorHandlers = () => {
       process.removeListener("uncaughtException", handleUncaughtException);
       process.removeListener("unhandledRejection", handleUnhandledRejection);
@@ -153,9 +146,7 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
       movementLoop = null;
       postJoin.cleanup();
     };
-    const handleJoinAuthenticated = listPlayersOnly
-      ? () => { clearJoinTimeout(); playerListProbe.start(); }
-      : () => undefined;
+    const onJoinAuthenticated = (): void => { if (listPlayersOnly) { clearJoinTimeout(); playerListProbe.start(); } };
     const handleFirstChunk = resolvedOptions.disconnectAfterFirstChunk
       ? () => {
         finish();
@@ -174,9 +165,7 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
               inputTick += 1n;
               return inputTick;
             },
-            setPosition: (position) => {
-              currentPosition = position;
-            }
+            setPosition: (position) => { currentPosition = position; }
           });
         };
     const handleChunkProgress = listPlayersOnly
@@ -191,16 +180,12 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
     process.once("SIGINT", handleSignal);
     process.on("uncaughtException", handleUncaughtException);
     process.on("unhandledRejection", handleUnhandledRejection);
-    resolvedOptions.logger.info(
-      {
-        event: "connect",
-        host: resolvedOptions.host,
-        port: resolvedOptions.port,
-        serverName: resolvedOptions.serverName ?? null,
-        serverId: resolvedOptions.nethernetServerId ? resolvedOptions.nethernetServerId.toString() : null
-      },
-      "Connecting to server"
-    );
+    resolvedOptions.logger.info({
+      event: "connect",
+      host: resolvedOptions.host, port: resolvedOptions.port,
+      serverName: resolvedOptions.serverName ?? null,
+      serverId: resolvedOptions.nethernetServerId?.toString() ?? null
+    }, "Connecting to server");
     resolvedOptions.onConnectionStateChange?.({ state: "connecting", reason: "connect_start" });
     client.on("packet", (packet) => {
       const name = readPacketEventName(packet);
@@ -212,23 +197,26 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
       resolvedOptions.logger.debug({ event: "packet_in", name }, "Received packet");
     });
     client.on("loggingIn", () => { resolvedOptions.logger.info({ event: "logging_in" }, "Sending login"); });
-    client.on("client.server_handshake", () => { resolvedOptions.logger.info({ event: "server_handshake" }, "Received server handshake"); });
-    client.on("play_status", (packet) => { resolvedOptions.logger.info({ event: "play_status", status: readOptionalStringField(packet, "status") }, "Received play status"); });
+    client.on("client.server_handshake", () => {
+      resolvedOptions.logger.info({ event: "server_handshake" }, "Received server handshake");
+    });
+    client.on("play_status", (packet) => {
+      const status = readOptionalStringField(packet, "status");
+      resolvedOptions.logger.info({ event: "play_status", status }, "Received play status");
+    });
     client.on("join", () => {
       authenticatedPlayerName = getProfileName(client);
-      botWorldState.setLocalIdentity(null, authenticatedPlayerName);
+      worldStateBridge.setAuthenticatedPlayerName(authenticatedPlayerName);
       resolvedOptions.onConnectionStateChange?.({ state: "online", reason: "join_authenticated" });
       resolvedOptions.logger.info({ event: "join", playerName: authenticatedPlayerName }, "Authenticated with server");
-      handleJoinAuthenticated();
+      onJoinAuthenticated();
     });
     client.on("start_game", (packet) => {
       if (!isStartGamePacket(packet)) return;
-      startGamePacket = packet;
       const localRuntimeEntityId = readPacketId(packet, ["runtime_entity_id", "runtime_id"]);
       playerTrackingState.setLocalRuntimeEntityId(localRuntimeEntityId);
       const position = isVector3(packet.player_position) ? packet.player_position : null;
-      botWorldState.setLocalIdentity(localRuntimeEntityId, authenticatedPlayerName);
-      botWorldState.setLocalPose(packet.dimension ?? null, position);
+      worldStateBridge.setLocalFromStartGame(localRuntimeEntityId, packet.dimension ?? null, position);
       currentPosition = position;
       resolvedOptions.logger.info(
         {
@@ -244,19 +232,25 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
       );
     });
     client.on("spawn", () => {
-      const position = startGamePacket && isVector3(startGamePacket.player_position)
-        ? startGamePacket.player_position
-        : null;
+      const localPlayer = worldStateBridge.getSnapshot().localPlayer;
       resolvedOptions.logger.info(
-        { event: "spawn", playerName: getProfileName(client), dimension: startGamePacket?.dimension ?? null, position },
+        {
+          event: "spawn",
+          playerName: getProfileName(client),
+          dimension: localPlayer.dimension,
+          position: localPlayer.position
+        },
         "Spawn confirmed"
       );
     });
-    client.on("add_player", (packet) => { playerTrackingState.handleAddPlayerPacket(packet); playerListState.handleAddPlayerPacket(packet); });
-    client.on("player_list", (packet) => { playerListState.handlePlayerListPacket(packet); });
-    client.on("remove_entity", (packet) => {
-      playerTrackingState.handleRemoveEntityPacket(packet);
+    client.on("add_player", (packet) => {
+      worldStateBridge.handleAddPlayerPacket(packet); playerTrackingState.handleAddPlayerPacket(packet);
+      playerListState.handleAddPlayerPacket(packet);
     });
+    client.on("add_entity", (packet) => { worldStateBridge.handleAddEntityPacket(packet); });
+    client.on("player_list", (packet) => { playerListState.handlePlayerListPacket(packet); });
+    client.on("remove_entity", (packet) => { worldStateBridge.handleRemoveEntityPacket(packet);
+      playerTrackingState.handleRemoveEntityPacket(packet); });
     client.on("level_chunk", (packet) => {
       if (!isLevelChunkPacket(packet)) return;
       if (packet.x === undefined || packet.z === undefined) return;
@@ -266,7 +260,13 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
         firstChunk = true;
         clearJoinTimeout();
         resolvedOptions.logger.info(
-          { event: "chunk", chunkX: packet.x, chunkZ: packet.z, chunkPackets: chunkPacketCount, uniqueChunks: loadedChunks.size },
+          {
+            event: "chunk",
+            chunkX: packet.x,
+            chunkZ: packet.z,
+            chunkPackets: chunkPacketCount,
+            uniqueChunks: loadedChunks.size
+          },
           "Received first chunk"
         );
         handleFirstChunk();
@@ -276,22 +276,22 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
     });
     client.on("close", (reason) => {
       if (finished) return;
-      if (shutdownRequested) {
-        finish();
-        return;
-      }
+      if (shutdownRequested) { finish(); return; }
       fail(new Error(`Server closed connection: ${reason ?? "unknown"}`));
     });
     client.on("move_player", (packet) => {
-      playerTrackingState.handleMovePlayerPacket(packet, (position) => {
-        currentPosition = position;
-        botWorldState.setLocalPose(botWorldState.getSnapshot().localPlayer.dimension, position);
-      });
+      worldStateBridge.handleMovePlayerPacket(packet, setCurrentPosition);
+      playerTrackingState.handleMovePlayerPacket(packet, setCurrentPosition);
     });
+    client.on("move_actor_absolute", (packet) => { worldStateBridge.handleMoveEntityPacket(packet); });
+    client.on("move_entity", (packet) => { worldStateBridge.handleMoveEntityPacket(packet); });
     client.on("error", (error) => {
       const normalizedError = toError(error);
       if (!firstChunk && isRecoverableReadError(normalizedError)) {
-        resolvedOptions.logger.info({ event: "join_error_ignored", error: normalizedError.message }, "Ignoring recoverable packet read error");
+        resolvedOptions.logger.info(
+          { event: "join_error_ignored", error: normalizedError.message },
+          "Ignoring recoverable packet read error"
+        );
         return;
       }
       fail(normalizedError);

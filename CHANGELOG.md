@@ -16,6 +16,7 @@ All notable changes to this project are documented in this file.
 - `join` runtime now supports dedicated player-list probe mode used by `players`, including bounded auto-disconnect timing.
 - Logger output now omits level fields entirely (`level`/`severity`) and keeps only payload + `time` + `msg`.
 - Local bot pose is now persisted in `BotWorldState` from authoritative `start_game`/`move_player` packets and exposed in runtime heartbeat logs.
+- Nearby entity lifecycle is now persisted in `BotWorldState` from runtime packet flow (`add_player`, `add_entity`, movement, and `remove_entity`).
 
 ## [0.3.0] - 2026-02-21
 
