@@ -1,10 +1,13 @@
 import { createClient } from "bedrock-protocol";
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
 import { randomBytes } from "node:crypto";
 import type { ClientOptions } from "bedrock-protocol";
 import type { Authflow } from "prismarine-auth";
 import type { Logger } from "pino";
-import { DEFAULT_JOIN_TIMEOUT_MS, DEFAULT_REQUEST_CHUNK_RADIUS_DELAY_MS, DEFAULT_VIEW_DISTANCE_CHUNKS, type RaknetBackend } from "../constants.js";
+import { DEFAULT_JOIN_TIMEOUT_MS, DEFAULT_REQUEST_CHUNK_RADIUS_DELAY_MS, DEFAULT_VIEW_DISTANCE_CHUNKS, RAKNET_BACKEND_NODE, type RaknetBackend } from "../constants.js";
 import type { AuthenticatedClientOptions } from "./authenticatedClientOptions.js";
+import { disconnectClient, isRecoverableReadError } from "./clientConnectionCleanup.js";
 import type { ClientLike } from "./clientTypes.js";
 import { configurePostJoinPackets } from "./postJoinPackets.js";
 import { createNethernetClient } from "./nethernetClientFactory.js";
@@ -35,6 +38,7 @@ export type JoinOptions = {
     serverId: bigint,
     clientId: bigint
   ) => ClientLike;
+  lookupHost?: (hostname: string) => Promise<string>;
 };
 
 type Vector3 = { x: number; y: number; z: number };
@@ -101,136 +105,175 @@ const toClientOptions = (options: JoinOptions): AuthenticatedClientOptions => ({
 
 const createRandomSenderId = (): bigint => randomBytes(8).readBigUInt64BE();
 
-export const joinBedrockServer = async (options: JoinOptions): Promise<void> => new Promise((resolve, reject) => {
-  const resolvedClientFactory = options.transport === "nethernet"
+const toError = (value: unknown): Error => {
+  if (value instanceof Error) return value;
+  return new Error(String(value));
+};
+const lookupHostAddress = async (hostname: string): Promise<string> => {
+  return (await lookup(hostname, { family: 4 })).address;
+};
+const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> => new Promise((resolve, reject) => {
+    const resolvedClientFactory = resolvedOptions.transport === "nethernet"
     ? () => {
-      if (!options.nethernetServerId) throw new Error("NetherNet join requires serverId from discovery");
-      return (options.nethernetClientFactory ?? createNethernetClient)(
-        toClientOptions({ ...options, skipPing: true }),
-        options.logger,
-        options.nethernetServerId,
-        options.nethernetClientId ?? createRandomSenderId()
+      if (!resolvedOptions.nethernetServerId) throw new Error("NetherNet join requires serverId from discovery");
+      return (resolvedOptions.nethernetClientFactory ?? createNethernetClient)(
+        toClientOptions({ ...resolvedOptions, skipPing: true }),
+        resolvedOptions.logger,
+        resolvedOptions.nethernetServerId,
+        resolvedOptions.nethernetClientId ?? createRandomSenderId()
       );
     }
-    : () => (options.clientFactory ?? createClient)(toClientOptions(options)) as ClientLike;
-  const client = resolvedClientFactory();
-  let startGamePacket: StartGamePacket | null = null;
-  let firstChunk = false;
-  let finished = false;
-  const joinTimeoutMs = options.joinTimeoutMs ?? DEFAULT_JOIN_TIMEOUT_MS;
-  const viewDistanceChunks = options.viewDistanceChunks ?? DEFAULT_VIEW_DISTANCE_CHUNKS;
-  const requestChunkRadiusDelayMs = DEFAULT_REQUEST_CHUNK_RADIUS_DELAY_MS;
-  const joinStartedAtMs = Date.now();
-  let lastPacketName: string | null = null;
-  let lastPacketAtMs: number | null = null;
-  let joinTimeoutId: ReturnType<typeof setTimeout> | null = setTimeout(() => {
-    const idleMs = lastPacketAtMs === null ? null : Math.max(0, Date.now() - lastPacketAtMs);
-    const timeoutDetails = idleMs === null
-      ? `last packet: ${lastPacketName ?? "none"}`
-      : `last packet: ${lastPacketName ?? "none"}, idle: ${idleMs}ms`;
-    joinTimeoutId = null;
-    fail(new Error(`Join timed out after ${Math.max(0, Date.now() - joinStartedAtMs)}ms (${timeoutDetails})`));
-    client.disconnect();
-  }, joinTimeoutMs);
-  const packetLogLimit = 50; // Log first few inbound packet names at debug to help diagnose join stalls without flooding.
-  let packetLogs = 0;
-  const postJoin = configurePostJoinPackets(client, options.logger, requestChunkRadiusDelayMs, viewDistanceChunks);
-  const finish = () => {
-    if (finished) return;
-    finished = true;
-    cleanup();
-    resolve();
-  };
-  const fail = (error: Error) => {
-    if (finished) return;
-    finished = true;
-    cleanup();
-    reject(error);
-  };
-  const handleSignal = () => {
-    options.logger.info({ event: "signal", signal: "SIGINT" }, "Disconnecting from server");
-    client.disconnect();
-  };
-  const cleanup = () => {
-    process.removeListener("SIGINT", handleSignal);
-    if (joinTimeoutId) clearTimeout(joinTimeoutId);
-    joinTimeoutId = null;
-    postJoin.cleanup();
-  };
-  process.once("SIGINT", handleSignal);
-  options.logger.info(
-    {
-      event: "connect",
-      host: options.host,
-      port: options.port,
-      serverName: options.serverName ?? null,
-      serverId: options.nethernetServerId ? options.nethernetServerId.toString() : null
-    },
-    "Connecting to server"
-  );
-  client.on("packet", (packet) => {
-    const name = readPacketEventName(packet);
-    if (!name) return;
-    lastPacketName = name;
-    lastPacketAtMs = Date.now();
-    if (packetLogs >= packetLogLimit) return;
-    packetLogs += 1;
-    options.logger.debug({ event: "packet_in", name }, "Received packet");
-  });
-  client.on("loggingIn", () => {
-    options.logger.info({ event: "logging_in" }, "Sending login");
-  });
-  client.on("client.server_handshake", () => {
-    options.logger.info({ event: "server_handshake" }, "Received server handshake");
-  });
-  client.on("play_status", (packet) => {
-    options.logger.info({ event: "play_status", status: readOptionalStringField(packet, "status") }, "Received play status");
-  });
-  client.on("join", () => {
-    options.logger.info({ event: "join", playerName: getProfileName(client) }, "Authenticated with server");
-  });
-  client.on("start_game", (packet) => {
-    if (!isStartGamePacket(packet)) return;
-    startGamePacket = packet;
-    const position = isVector3(packet.player_position) ? packet.player_position : null;
-    options.logger.info(
+    : () => (resolvedOptions.clientFactory ?? createClient)(toClientOptions(resolvedOptions)) as ClientLike;
+    const client = resolvedClientFactory();
+    let startGamePacket: StartGamePacket | null = null;
+    let firstChunk = false;
+    let finished = false;
+    const joinTimeoutMs = resolvedOptions.joinTimeoutMs ?? DEFAULT_JOIN_TIMEOUT_MS;
+    const viewDistanceChunks = resolvedOptions.viewDistanceChunks ?? DEFAULT_VIEW_DISTANCE_CHUNKS;
+    const requestChunkRadiusDelayMs = DEFAULT_REQUEST_CHUNK_RADIUS_DELAY_MS;
+    const joinStartedAtMs = Date.now();
+    let lastPacketName: string | null = null;
+    let lastPacketAtMs: number | null = null;
+    let joinTimeoutId: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+      const idleMs = lastPacketAtMs === null ? null : Math.max(0, Date.now() - lastPacketAtMs);
+      const timeoutDetails = idleMs === null
+        ? `last packet: ${lastPacketName ?? "none"}`
+        : `last packet: ${lastPacketName ?? "none"}, idle: ${idleMs}ms`;
+      joinTimeoutId = null;
+      fail(new Error(`Join timed out after ${Math.max(0, Date.now() - joinStartedAtMs)}ms (${timeoutDetails})`));
+      disconnectClient(client);
+    }, joinTimeoutMs);
+    const packetLogLimit = 50; // Log first few inbound packet names at debug to help diagnose join stalls without flooding.
+    let packetLogs = 0;
+    const postJoin = configurePostJoinPackets(
+      client,
+      resolvedOptions.logger,
+      requestChunkRadiusDelayMs,
+      viewDistanceChunks
+    );
+    const handleUncaughtException = (error: Error) => {
+      fail(toError(error));
+      disconnectClient(client);
+    };
+    const handleUnhandledRejection = (reason: unknown) => {
+      fail(toError(reason));
+      disconnectClient(client);
+    };
+    const removeProcessErrorHandlers = () => {
+      process.removeListener("uncaughtException", handleUncaughtException);
+      process.removeListener("unhandledRejection", handleUnhandledRejection);
+    };
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      cleanup();
+      resolve();
+    };
+    const fail = (error: Error) => {
+      if (finished) return;
+      finished = true;
+      cleanup();
+      reject(error);
+    };
+    const handleSignal = () => {
+      resolvedOptions.logger.info({ event: "signal", signal: "SIGINT" }, "Disconnecting from server");
+      disconnectClient(client);
+    };
+    const cleanup = () => {
+      process.removeListener("SIGINT", handleSignal);
+      removeProcessErrorHandlers();
+      if (joinTimeoutId) clearTimeout(joinTimeoutId);
+      joinTimeoutId = null;
+      postJoin.cleanup();
+    };
+    process.once("SIGINT", handleSignal);
+    process.on("uncaughtException", handleUncaughtException);
+    process.on("unhandledRejection", handleUnhandledRejection);
+    resolvedOptions.logger.info(
       {
-        event: "start_game",
-        playerName: getProfileName(client),
-        dimension: packet.dimension ?? null,
-        position,
-        levelId: packet.level_id ?? null,
-        worldName: packet.world_name ?? null
+        event: "connect",
+        host: resolvedOptions.host,
+        port: resolvedOptions.port,
+        serverName: resolvedOptions.serverName ?? null,
+        serverId: resolvedOptions.nethernetServerId ? resolvedOptions.nethernetServerId.toString() : null
       },
-      "Received start game"
+      "Connecting to server"
     );
+    client.on("packet", (packet) => {
+      const name = readPacketEventName(packet);
+      if (!name) return;
+      lastPacketName = name;
+      lastPacketAtMs = Date.now();
+      if (packetLogs >= packetLogLimit) return;
+      packetLogs += 1;
+      resolvedOptions.logger.debug({ event: "packet_in", name }, "Received packet");
+    });
+    client.on("loggingIn", () => {
+      resolvedOptions.logger.info({ event: "logging_in" }, "Sending login");
+    });
+    client.on("client.server_handshake", () => {
+      resolvedOptions.logger.info({ event: "server_handshake" }, "Received server handshake");
+    });
+    client.on("play_status", (packet) => {
+      resolvedOptions.logger.info({ event: "play_status", status: readOptionalStringField(packet, "status") }, "Received play status");
+    });
+    client.on("join", () => {
+      resolvedOptions.logger.info({ event: "join", playerName: getProfileName(client) }, "Authenticated with server");
+    });
+    client.on("start_game", (packet) => {
+      if (!isStartGamePacket(packet)) return;
+      startGamePacket = packet;
+      const position = isVector3(packet.player_position) ? packet.player_position : null;
+      resolvedOptions.logger.info(
+        {
+          event: "start_game",
+          playerName: getProfileName(client),
+          dimension: packet.dimension ?? null,
+          position,
+          levelId: packet.level_id ?? null,
+          worldName: packet.world_name ?? null
+        },
+        "Received start game"
+      );
+    });
+    client.on("spawn", () => {
+      const position = startGamePacket && isVector3(startGamePacket.player_position)
+        ? startGamePacket.player_position
+        : null;
+      resolvedOptions.logger.info(
+        { event: "spawn", playerName: getProfileName(client), dimension: startGamePacket?.dimension ?? null, position },
+        "Spawn confirmed"
+      );
+    });
+    client.on("level_chunk", (packet) => {
+      if (firstChunk) return;
+      if (!isLevelChunkPacket(packet)) return;
+      firstChunk = true;
+      resolvedOptions.logger.info(
+        { event: "chunk", chunkX: packet.x ?? null, chunkZ: packet.z ?? null },
+        "Received first chunk"
+      );
+      finish();
+      if (resolvedOptions.disconnectAfterFirstChunk) disconnectClient(client);
+    });
+    client.on("close", (reason) => {
+      if (finished) return;
+      fail(new Error(`Server closed connection: ${reason ?? "unknown"}`));
+    });
+    client.on("error", (error) => {
+      const normalizedError = toError(error);
+      if (!firstChunk && isRecoverableReadError(normalizedError)) {
+        resolvedOptions.logger.info({ event: "join_error_ignored", error: normalizedError.message }, "Ignoring recoverable packet read error");
+        return;
+      }
+      fail(normalizedError);
+      disconnectClient(client);
+    });
   });
-  client.on("spawn", () => {
-    const position = startGamePacket && isVector3(startGamePacket.player_position)
-      ? startGamePacket.player_position
-      : null;
-    options.logger.info(
-      { event: "spawn", playerName: getProfileName(client), dimension: startGamePacket?.dimension ?? null, position },
-      "Spawn confirmed"
-    );
-  });
-  client.on("level_chunk", (packet) => {
-    if (firstChunk) return;
-    if (!isLevelChunkPacket(packet)) return;
-    firstChunk = true;
-    options.logger.info(
-      { event: "chunk", chunkX: packet.x ?? null, chunkZ: packet.z ?? null },
-      "Received first chunk"
-    );
-    finish();
-    if (options.disconnectAfterFirstChunk) client.disconnect();
-  });
-  client.on("close", (reason) => {
-    if (finished) return;
-    fail(new Error(`Server closed connection: ${reason ?? "unknown"}`));
-  });
-  client.on("error", (error) => {
-    if (error instanceof Error) return fail(error);
-    return fail(new Error(String(error)));
-  });
-});
+
+export const joinBedrockServer = async (options: JoinOptions): Promise<void> => {
+  if (options.raknetBackend !== RAKNET_BACKEND_NODE || isIP(options.host) !== 0) return createJoinPromise(options);
+  const resolvedHost = await (options.lookupHost ?? lookupHostAddress)(options.host);
+  if (resolvedHost === options.host) return createJoinPromise(options);
+  return createJoinPromise({ ...options, host: resolvedHost });
+};

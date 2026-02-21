@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import nodeDataChannel from "node-datachannel";
 import type { Logger } from "pino";
 import { DEFAULT_NETHERNET_PORT } from "../../src/constants.js";
 import { NethernetRakClient, type DataChannelLike } from "../../src/nethernet/nethernetRakClient.js";
@@ -133,29 +132,24 @@ void test("NethernetRakClient ping rejects", async () => {
 });
 
 void test("NethernetRakClient close handles cleanup errors", () => {
-  const originalCleanup = nodeDataChannel.cleanup;
   let warned = false;
-  (nodeDataChannel as unknown as { cleanup: () => void }).cleanup = () => {
+  const client = new NethernetRakClient({
+    host: "192.168.0.10",
+    port: DEFAULT_NETHERNET_PORT,
+    clientId: 1n,
+    serverId: 2n,
+    logger: {
+      debug: () => undefined,
+      info: () => undefined,
+      warn: () => {
+        warned = true;
+      },
+      error: () => undefined
+    } as unknown as Logger
+  });
+  (client as unknown as { dependencies: { cleanupRuntime: () => void } }).dependencies.cleanupRuntime = () => {
     throw new Error("boom");
   };
-  try {
-    const client = new NethernetRakClient({
-      host: "192.168.0.10",
-      port: DEFAULT_NETHERNET_PORT,
-      clientId: 1n,
-      serverId: 2n,
-      logger: {
-        debug: () => undefined,
-        info: () => undefined,
-        warn: () => {
-          warned = true;
-        },
-        error: () => undefined
-      } as unknown as Logger
-    });
-    client.close("reason");
-    assert.equal(warned, true);
-  } finally {
-    (nodeDataChannel as unknown as { cleanup: () => void }).cleanup = originalCleanup;
-  }
+  client.close("reason");
+  assert.equal(warned, true);
 });

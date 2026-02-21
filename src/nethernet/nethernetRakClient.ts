@@ -1,12 +1,17 @@
 import dgram from "node:dgram";
 import { randomBytes } from "node:crypto";
-import nodeDataChannel, { type DataChannelInitConfig, type DescriptionType } from "node-datachannel";
+import { createRequire } from "node:module";
+import type nodeDataChannelType from "node-datachannel";
+import type { DataChannelInitConfig, DescriptionType } from "node-datachannel";
 import type { Logger } from "pino";
 import { DEFAULT_NETHERNET_PORT, NETHERNET_MAX_SEGMENT_BYTES } from "../constants.js";
 import { decodeDiscoveryPacket, encodeDiscoveryPacket } from "./discoveryPackets.js";
 import { NethernetSegmentReassembler, splitNethernetPayload } from "./segmentation.js";
 import type { DataChannelLike, DatagramRemoteInfo, DatagramSocketLike, EncapsulatedPacketLike, PeerConnectionLike } from "./nethernetRakClientTypes.js";
 export type { DataChannelLike, EncapsulatedPacketLike, PeerConnectionLike } from "./nethernetRakClientTypes.js";
+
+const require = createRequire(import.meta.url);
+let cachedNodeDataChannel: typeof nodeDataChannelType | null = null;
 
 const RELIABLE_DATA_CHANNEL_LABEL = "ReliableDataChannel";
 const UNRELIABLE_DATA_CHANNEL_LABEL = "UnreliableDataChannel";
@@ -15,6 +20,12 @@ const DISCOVERY_MESSAGE_SEPARATOR = " ";
 const MIN_DISCOVERY_MESSAGE_PARTS = 2;
 const PACKET_LOG_SAMPLE_LIMIT = 5; // Limit packet summary logs to avoid log spam during join.
 const SEGMENT_LOG_SAMPLE_LIMIT = 60; // Log initial NetherNet segments to debug large packets (e.g. login/resource packs) without flooding.
+
+const getNodeDataChannel = (): typeof nodeDataChannelType => {
+  if (cachedNodeDataChannel) return cachedNodeDataChannel;
+  cachedNodeDataChannel = require("node-datachannel") as typeof nodeDataChannelType;
+  return cachedNodeDataChannel;
+};
 
 export type NethernetRakClientOptions = {
   host: string;
@@ -27,6 +38,7 @@ export type NethernetRakClientOptions = {
 export type NethernetRakClientDependencies = {
   createSocket: () => DatagramSocketLike;
   createPeerConnection: () => PeerConnectionLike;
+  cleanupRuntime?: () => void;
   encodeDiscoveryPacket: typeof encodeDiscoveryPacket;
   decodeDiscoveryPacket: typeof decodeDiscoveryPacket;
   splitNethernetPayload: typeof splitNethernetPayload;
@@ -35,6 +47,7 @@ export type NethernetRakClientDependencies = {
 };
 
 const createPeerConnection = (): PeerConnectionLike => {
+  const nodeDataChannel = getNodeDataChannel();
   nodeDataChannel.preload();
   return new nodeDataChannel.PeerConnection("bedcraft", { iceServers: [] });
 };
@@ -42,6 +55,7 @@ const createPeerConnection = (): PeerConnectionLike => {
 const defaultNethernetRakClientDependencies: NethernetRakClientDependencies = {
   createSocket: () => dgram.createSocket({ type: "udp4", reuseAddr: true }),
   createPeerConnection,
+  cleanupRuntime: () => getNodeDataChannel().cleanup(),
   encodeDiscoveryPacket,
   decodeDiscoveryPacket,
   splitNethernetPayload,
@@ -119,7 +133,7 @@ export class NethernetRakClient {
     this.peer?.close();
     this.socket?.close();
     try {
-      nodeDataChannel.cleanup();
+      (this.dependencies.cleanupRuntime ?? defaultNethernetRakClientDependencies.cleanupRuntime)?.();
     } catch (error) {
       this.options.logger.warn({ event: "nethernet_cleanup_error", error: error instanceof Error ? error.message : String(error) }, "NetherNet cleanup failed");
     }
