@@ -59,10 +59,13 @@ export const createCommandLineProgram = (
     .option("--key-file <path>", "Override protected cache key blob file path")
     .option("--minecraft-version <version>", "Minecraft protocol version (e.g. 1.21.93)")
     .option("--join-timeout <ms>", "Join timeout in milliseconds")
+    .option("--disconnect-after-first-chunk", "Exit after first chunk (legacy MVP behavior)")
     .option("--force-refresh", "Force refresh cached tokens")
     .option("--skip-ping", "Skip initial ping before connecting")
     .option("--raknet-backend <backend>", "RakNet backend: native|node")
     .option("--discovery-timeout <ms>", "LAN discovery timeout in milliseconds")
+    .option("--goal <goal>", "Movement goal: safe-walk|follow-player")
+    .option("--follow-player <name>", "Target player name for follow-player goal")
     .action(async (options: {
       host?: string;
       port?: string;
@@ -73,10 +76,13 @@ export const createCommandLineProgram = (
       keyFile?: string;
       minecraftVersion?: string;
       joinTimeout?: string;
+      disconnectAfterFirstChunk?: boolean;
       forceRefresh?: boolean;
       skipPing?: boolean;
       raknetBackend?: string;
       discoveryTimeout?: string;
+      goal?: string;
+      followPlayer?: string;
     }) => {
       try {
         await dependencies.runJoinCommand(
@@ -90,10 +96,13 @@ export const createCommandLineProgram = (
             keyFile: options.keyFile,
             minecraftVersion: options.minecraftVersion,
             joinTimeout: options.joinTimeout,
+            disconnectAfterFirstChunk: options.disconnectAfterFirstChunk,
             forceRefresh: options.forceRefresh,
             skipPing: options.skipPing,
             raknetBackend: options.raknetBackend,
-            discoveryTimeout: options.discoveryTimeout
+            discoveryTimeout: options.discoveryTimeout,
+            goal: options.goal,
+            followPlayer: options.followPlayer
           }, process.env),
           logger
         );

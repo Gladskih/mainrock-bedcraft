@@ -1,5 +1,5 @@
 import type { Logger } from "pino";
-import { APPLICATION_ID, type RaknetBackend } from "../constants.js";
+import { APPLICATION_ID, type MovementGoal, type RaknetBackend } from "../constants.js";
 import { createAuthFlow } from "../authentication/authFlow.js";
 import { resolveCachePaths } from "../authentication/cachePaths.js";
 import { discoverLanServers } from "../bedrock/lanDiscovery.js";
@@ -23,6 +23,8 @@ export type JoinCommandOptions = {
   forceRefresh: boolean;
   raknetBackend: RaknetBackend;
   skipPing: boolean;
+  movementGoal: MovementGoal;
+  followPlayerName: string | undefined;
 };
 
 export type JoinDependencies = {
@@ -84,6 +86,8 @@ export const runJoinCommand = async (
     raknetBackend: options.raknetBackend,
     transport: options.transport,
     joinTimeoutMs: options.joinTimeoutMs,
+    movementGoal: options.movementGoal,
+    followPlayerName: options.followPlayerName,
     ...(options.minecraftVersion !== undefined ? { minecraftVersion: options.minecraftVersion } : {}),
     ...(target.nethernetServerId !== undefined ? { nethernetServerId: target.nethernetServerId } : {})
   });

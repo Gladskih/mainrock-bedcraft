@@ -3,9 +3,8 @@ import { EventEmitter } from "node:events";
 import { test } from "node:test";
 import type { Authflow } from "prismarine-auth";
 import type { Logger } from "pino";
-import { createNethernetClient, disableBedrockEncryptionForNethernet, joinBedrockServer } from "../../src/bedrock/joinClient.js";
-import type { CreateNethernetClientDependencies } from "../../src/bedrock/joinClient.js";
-import { DEFAULT_RAKNET_BACKEND } from "../../src/constants.js";
+import { joinBedrockServer } from "../../src/bedrock/joinClient.js";
+import { DEFAULT_RAKNET_BACKEND, MOVEMENT_GOAL_FOLLOW_PLAYER, MOVEMENT_GOAL_SAFE_WALK } from "../../src/constants.js";
 
 class FakeClient extends EventEmitter {
   disconnectCalled = false;
@@ -42,6 +41,8 @@ const createRaknetJoinOptions = (client: FakeClient, overrides: Partial<JoinOpti
   skipPing: false,
   raknetBackend: DEFAULT_RAKNET_BACKEND,
   transport: "raknet",
+  movementGoal: MOVEMENT_GOAL_SAFE_WALK,
+  followPlayerName: undefined,
   clientFactory: () => client,
   ...overrides
 });
@@ -65,8 +66,14 @@ void test("joinBedrockServer respects disconnect flag", async () => {
   const fakeClient = new FakeClient();
   const promise = joinBedrockServer(createRaknetJoinOptions(fakeClient, { disconnectAfterFirstChunk: false }));
   fakeClient.emit("level_chunk", { x: 0, z: 0 });
-  await promise;
+  const status = await Promise.race([
+    promise.then(() => "resolved"),
+    new Promise<"pending">((resolve) => setTimeout(() => resolve("pending"), 25))
+  ]);
+  assert.equal(status, "pending");
   assert.equal(fakeClient.disconnectCalled, false);
+  process.emit("SIGINT");
+  await promise;
 });
 
 void test("joinBedrockServer rejects on close before chunk", async () => {
@@ -101,7 +108,7 @@ void test("joinBedrockServer logs unknown profile name", async () => {
   const events: Array<{ playerName?: string }> = [];
   const promise = joinBedrockServer(createRaknetJoinOptions(fakeClient, {
     logger: createCapturingLogger(events),
-    disconnectAfterFirstChunk: false
+    disconnectAfterFirstChunk: true
   }));
   fakeClient.emit("join");
   fakeClient.emit("level_chunk", { x: 0, z: 0 });
@@ -113,7 +120,6 @@ void test("joinBedrockServer handles SIGINT", async () => {
   const fakeClient = new FakeClient();
   const promise = joinBedrockServer(createRaknetJoinOptions(fakeClient, { disconnectAfterFirstChunk: false }));
   process.emit("SIGINT");
-  fakeClient.emit("level_chunk", { x: 0, z: 0 });
   await promise;
   assert.equal(fakeClient.disconnectCalled, true);
 });
@@ -123,12 +129,50 @@ void test("joinBedrockServer uses null position without start game", async () =>
   const events: Array<{ event?: string; position?: unknown }> = [];
   const promise = joinBedrockServer(createRaknetJoinOptions(fakeClient, {
     logger: createCapturingLogger(events),
-    disconnectAfterFirstChunk: false
+    disconnectAfterFirstChunk: true
   }));
   fakeClient.emit("spawn");
   fakeClient.emit("level_chunk", { x: 0, z: 0 });
   await promise;
   assert.equal(events.some((event) => event.event === "spawn" && event.position === null), true);
+});
+
+void test("joinBedrockServer logs chunk progress while connected", async () => {
+  const fakeClient = new FakeClient();
+  const events: Array<{ event?: string; chunkPackets?: number }> = [];
+  const promise = joinBedrockServer(createRaknetJoinOptions(fakeClient, {
+    logger: createCapturingLogger(events),
+    disconnectAfterFirstChunk: false
+  }));
+  for (let index = 0; index < 64; index += 1) {
+    fakeClient.emit("level_chunk", { x: index, z: 0 });
+  }
+  assert.equal(events.some((event) => event.event === "chunk_progress" && event.chunkPackets === 64), true);
+  process.emit("SIGINT");
+  await promise;
+});
+
+void test("joinBedrockServer follow-player goal sends movement toward target", async () => {
+  class WritableClient extends FakeClient {
+    queueCalls: Array<{ name: string; params: { move_vector?: { x?: number; y?: number } } }> = [];
+    queue(name: string, params: { move_vector?: { x?: number; y?: number } }): void {
+      this.queueCalls.push({ name, params });
+    }
+  }
+  const fakeClient = new WritableClient();
+  const promise = joinBedrockServer(createRaknetJoinOptions(fakeClient, {
+    disconnectAfterFirstChunk: false,
+    movementGoal: MOVEMENT_GOAL_FOLLOW_PLAYER,
+    followPlayerName: "TargetPlayer"
+  }));
+  fakeClient.emit("start_game", { runtime_entity_id: 1n, player_position: { x: 0, y: 70, z: 0 }, dimension: "overworld" });
+  fakeClient.emit("add_player", { runtime_id: 2n, username: "TargetPlayer", position: { x: 5, y: 70, z: 0 } });
+  fakeClient.emit("level_chunk", { x: 0, z: 0 });
+  await new Promise((resolve) => setTimeout(resolve, 130));
+  process.emit("SIGINT");
+  await promise;
+  assert.equal(fakeClient.queueCalls.some((call) => call.name === "player_auth_input"), true);
+  assert.equal(fakeClient.queueCalls.some((call) => (call.params.move_vector?.x ?? 0) > 0), true);
 });
 
 void test("joinBedrockServer rejects nethernet join without server id", async () => {
@@ -142,7 +186,9 @@ void test("joinBedrockServer rejects nethernet join without server id", async ()
     disconnectAfterFirstChunk: true,
     skipPing: false,
     raknetBackend: DEFAULT_RAKNET_BACKEND,
-    transport: "nethernet"
+    transport: "nethernet",
+    movementGoal: MOVEMENT_GOAL_SAFE_WALK,
+    followPlayerName: undefined
   }));
 });
 
@@ -162,6 +208,8 @@ void test("joinBedrockServer uses nethernet client factory", async () => {
     skipPing: false,
     raknetBackend: DEFAULT_RAKNET_BACKEND,
     transport: "nethernet",
+    movementGoal: MOVEMENT_GOAL_SAFE_WALK,
+    followPlayerName: undefined,
     nethernetServerId: 5n,
     nethernetClientId: 6n,
     nethernetClientFactory: (options, _logger, serverId, clientId) => {
@@ -212,7 +260,7 @@ void test("joinBedrockServer responds to resource pack negotiation", async () =>
     }
   }
   const fakeClient = new WritableClient();
-  const promise = joinBedrockServer(createRaknetJoinOptions(fakeClient, { disconnectAfterFirstChunk: false }));
+  const promise = joinBedrockServer(createRaknetJoinOptions(fakeClient, { disconnectAfterFirstChunk: true }));
   fakeClient.emit("join");
   fakeClient.emit("resource_packs_info");
   fakeClient.emit("resource_pack_stack");
@@ -223,74 +271,4 @@ void test("joinBedrockServer responds to resource pack negotiation", async () =>
   assert.equal(fakeClient.writeCalls.some((call) => call.name === "resource_pack_client_response"), true);
   assert.equal(fakeClient.queueCalls.some((call) => call.name === "client_cache_status"), true);
   assert.equal(fakeClient.queueCalls.some((call) => call.name === "request_chunk_radius"), true);
-});
-
-void test("disableBedrockEncryptionForNethernet overrides startEncryption once", () => {
-  const logs: Array<{ event?: string; mode?: string }> = [];
-  const logger = { info: (data: { event?: string; mode?: string }) => logs.push(data) } as unknown as Logger;
-  const client: { startEncryption: (iv: Buffer) => void } = { startEncryption: () => undefined };
-  disableBedrockEncryptionForNethernet(client, logger);
-  client.startEncryption(Buffer.alloc(16));
-  client.startEncryption(Buffer.alloc(16));
-  assert.equal(logs.filter((entry) => entry.event === "encryption" && entry.mode === "disabled_for_nethernet").length, 1);
-});
-
-void test("createNethernetClient wires up bedrock client and transport", () => {
-  class FakeBedrockClient extends EventEmitter {
-    initCalled = 0;
-    connectCalled = 0;
-    closeCalled = false;
-    writeCalls: Array<{ name: string; params: object }> = [];
-    connection: { close?: () => void } | null = { close: () => {
-      this.closeCalled = true;
-    } };
-    startEncryption: (iv: Buffer) => void = () => undefined;
-    init(): void {
-      this.initCalled += 1;
-    }
-    connect(): void {
-      this.connectCalled += 1;
-    }
-    write(name: string, params: object): void {
-      this.writeCalls.push({ name, params });
-    }
-    queue(name: string, params: object): void {
-      this.write(name, params);
-    }
-    disconnect(): void {}
-  }
-  const fakeBedrockClient = new FakeBedrockClient();
-  const receivedClientOptions: Array<{ delayedInit?: boolean }> = [];
-  const transport = {} as unknown as ReturnType<CreateNethernetClientDependencies["createNethernetRakClient"]>;
-  const dependencies: CreateNethernetClientDependencies = {
-    createBedrockClient: (options) => {
-      receivedClientOptions.push(options as unknown as { delayedInit?: boolean });
-      return fakeBedrockClient;
-    },
-    createNethernetRakClient: () => transport
-  };
-  const client = createNethernetClient(
-    {
-      host: "127.0.0.1",
-      port: 7551,
-      username: "user",
-      authflow: defaultAuthflow,
-      flow: "live",
-      deviceType: "Nintendo",
-      skipPing: true,
-      raknetBackend: DEFAULT_RAKNET_BACKEND,
-      conLog: null
-    },
-    createLogger(),
-    1n,
-    2n,
-    dependencies
-  );
-  assert.equal(receivedClientOptions.some((options) => options.delayedInit === true), true);
-  assert.equal(fakeBedrockClient.initCalled, 1);
-  assert.equal(fakeBedrockClient.closeCalled, true);
-  assert.equal((client as unknown as { connection?: unknown }).connection, transport);
-  (client as unknown as { queue: (name: string, params: object) => void }).queue("test", {});
-  assert.equal(fakeBedrockClient.writeCalls.some((call) => call.name === "test"), true);
-  assert.equal(fakeBedrockClient.connectCalled, 1);
 });

@@ -4,7 +4,7 @@ import { test } from "node:test";
 import type { Authflow } from "prismarine-auth";
 import type { Logger } from "pino";
 import { joinBedrockServer } from "../../src/bedrock/joinClient.js";
-import { RAKNET_BACKEND_NODE } from "../../src/constants.js";
+import { MOVEMENT_GOAL_SAFE_WALK, RAKNET_BACKEND_NODE } from "../../src/constants.js";
 
 class FakeClient extends EventEmitter {
   disconnectCalled = false;
@@ -29,6 +29,8 @@ void test("joinBedrockServer resolves hostname for raknet-node backend", async (
     skipPing: true,
     raknetBackend: RAKNET_BACKEND_NODE,
     transport: "raknet",
+    movementGoal: MOVEMENT_GOAL_SAFE_WALK,
+    followPlayerName: undefined,
     lookupHost: async () => "203.0.113.10",
     clientFactory: (options) => {
       receivedHost = options.host;

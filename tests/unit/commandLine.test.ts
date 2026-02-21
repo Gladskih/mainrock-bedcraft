@@ -2,34 +2,39 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Logger } from "pino";
 import { createCommandLineProgram } from "../../src/command-line/commandLine.js";
-import { DEFAULT_RAKNET_BACKEND } from "../../src/constants.js";
+import type { JoinCommandOptions } from "../../src/command-line/runJoinCommand.js";
+import { DEFAULT_RAKNET_BACKEND, MOVEMENT_GOAL_SAFE_WALK } from "../../src/constants.js";
 
 const createLogger = (): Logger => ({
   info: () => undefined,
   error: () => undefined
 } as unknown as Logger);
 
+const createResolvedJoinOptions = (): JoinCommandOptions => ({
+  accountName: "user",
+  host: "127.0.0.1",
+  port: 19132,
+  serverName: undefined,
+  transport: "raknet" as const,
+  discoveryTimeoutMs: 1,
+  cacheDirectory: undefined,
+  keyFilePath: undefined,
+  environmentKey: undefined,
+  minecraftVersion: undefined,
+  joinTimeoutMs: 1,
+  disconnectAfterFirstChunk: true,
+  forceRefresh: false,
+  skipPing: false,
+  raknetBackend: DEFAULT_RAKNET_BACKEND,
+  movementGoal: MOVEMENT_GOAL_SAFE_WALK,
+  followPlayerName: undefined
+});
+
 void test("command line scan dispatches to handler", async () => {
   let called = false;
   const program = createCommandLineProgram(createLogger(), {
     resolveScanOptions: () => ({ timeoutMs: 1, serverNameFilter: undefined, transport: "nethernet" }),
-    resolveJoinOptions: () => ({
-      accountName: "user",
-      host: "127.0.0.1",
-      port: 19132,
-      serverName: undefined,
-      transport: "raknet",
-      discoveryTimeoutMs: 1,
-      cacheDirectory: undefined,
-      keyFilePath: undefined,
-      environmentKey: undefined,
-      minecraftVersion: undefined,
-      joinTimeoutMs: 1,
-      disconnectAfterFirstChunk: true,
-      forceRefresh: false,
-      skipPing: false,
-      raknetBackend: DEFAULT_RAKNET_BACKEND
-    }),
+    resolveJoinOptions: () => createResolvedJoinOptions(),
     runScanCommand: async () => {
       called = true;
     },
@@ -43,23 +48,7 @@ void test("command line join dispatches to handler", async () => {
   let called = false;
   const program = createCommandLineProgram(createLogger(), {
     resolveScanOptions: () => ({ timeoutMs: 1, serverNameFilter: undefined, transport: "nethernet" }),
-    resolveJoinOptions: () => ({
-      accountName: "user",
-      host: "127.0.0.1",
-      port: 19132,
-      serverName: undefined,
-      transport: "raknet",
-      discoveryTimeoutMs: 1,
-      cacheDirectory: undefined,
-      keyFilePath: undefined,
-      environmentKey: undefined,
-      minecraftVersion: undefined,
-      joinTimeoutMs: 1,
-      disconnectAfterFirstChunk: true,
-      forceRefresh: false,
-      skipPing: false,
-      raknetBackend: DEFAULT_RAKNET_BACKEND
-    }),
+    resolveJoinOptions: () => createResolvedJoinOptions(),
     runScanCommand: async () => undefined,
     runJoinCommand: async () => {
       called = true;
@@ -73,23 +62,7 @@ void test("command line scan sets exit code on error", async () => {
   const previousExitCode = process.exitCode;
   const program = createCommandLineProgram(createLogger(), {
     resolveScanOptions: () => ({ timeoutMs: 1, serverNameFilter: undefined, transport: "nethernet" }),
-    resolveJoinOptions: () => ({
-      accountName: "user",
-      host: "127.0.0.1",
-      port: 19132,
-      serverName: undefined,
-      transport: "raknet",
-      discoveryTimeoutMs: 1,
-      cacheDirectory: undefined,
-      keyFilePath: undefined,
-      environmentKey: undefined,
-      minecraftVersion: undefined,
-      joinTimeoutMs: 1,
-      disconnectAfterFirstChunk: true,
-      forceRefresh: false,
-      skipPing: false,
-      raknetBackend: DEFAULT_RAKNET_BACKEND
-    }),
+    resolveJoinOptions: () => createResolvedJoinOptions(),
     runScanCommand: async () => {
       throw new Error("scan");
     },
@@ -104,23 +77,7 @@ void test("command line join sets exit code on error", async () => {
   const previousExitCode = process.exitCode;
   const program = createCommandLineProgram(createLogger(), {
     resolveScanOptions: () => ({ timeoutMs: 1, serverNameFilter: undefined, transport: "nethernet" }),
-    resolveJoinOptions: () => ({
-      accountName: "user",
-      host: "127.0.0.1",
-      port: 19132,
-      serverName: undefined,
-      transport: "raknet",
-      discoveryTimeoutMs: 1,
-      cacheDirectory: undefined,
-      keyFilePath: undefined,
-      environmentKey: undefined,
-      minecraftVersion: undefined,
-      joinTimeoutMs: 1,
-      disconnectAfterFirstChunk: true,
-      forceRefresh: false,
-      skipPing: false,
-      raknetBackend: DEFAULT_RAKNET_BACKEND
-    }),
+    resolveJoinOptions: () => createResolvedJoinOptions(),
     runScanCommand: async () => undefined,
     runJoinCommand: async () => {
       throw new Error("join");
@@ -135,23 +92,7 @@ void test("command line scan handles non-error rejection", async () => {
   const previousExitCode = process.exitCode;
   const program = createCommandLineProgram(createLogger(), {
     resolveScanOptions: () => ({ timeoutMs: 1, serverNameFilter: undefined, transport: "nethernet" }),
-    resolveJoinOptions: () => ({
-      accountName: "user",
-      host: "127.0.0.1",
-      port: 19132,
-      serverName: undefined,
-      transport: "raknet",
-      discoveryTimeoutMs: 1,
-      cacheDirectory: undefined,
-      keyFilePath: undefined,
-      environmentKey: undefined,
-      minecraftVersion: undefined,
-      joinTimeoutMs: 1,
-      disconnectAfterFirstChunk: true,
-      forceRefresh: false,
-      skipPing: false,
-      raknetBackend: DEFAULT_RAKNET_BACKEND
-    }),
+    resolveJoinOptions: () => createResolvedJoinOptions(),
     runScanCommand: async () => {
       throw "scan";
     },
@@ -166,23 +107,7 @@ void test("command line join handles non-error rejection", async () => {
   const previousExitCode = process.exitCode;
   const program = createCommandLineProgram(createLogger(), {
     resolveScanOptions: () => ({ timeoutMs: 1, serverNameFilter: undefined, transport: "nethernet" }),
-    resolveJoinOptions: () => ({
-      accountName: "user",
-      host: "127.0.0.1",
-      port: 19132,
-      serverName: undefined,
-      transport: "raknet",
-      discoveryTimeoutMs: 1,
-      cacheDirectory: undefined,
-      keyFilePath: undefined,
-      environmentKey: undefined,
-      minecraftVersion: undefined,
-      joinTimeoutMs: 1,
-      disconnectAfterFirstChunk: true,
-      forceRefresh: false,
-      skipPing: false,
-      raknetBackend: DEFAULT_RAKNET_BACKEND
-    }),
+    resolveJoinOptions: () => createResolvedJoinOptions(),
     runScanCommand: async () => undefined,
     runJoinCommand: async () => {
       throw "join";

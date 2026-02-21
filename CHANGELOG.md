@@ -4,9 +4,29 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-02-21
+
 ### Added
 
 - GitHub Actions CI workflow for `lint`, `typecheck`, and unit test validation on `push`/`pull_request`.
+- `docs/BOT_ROADMAP.md` with phased implementation plan for long-running bot behavior, world-state ingestion, navigation, and goal planning.
+- Initial progression planner module (`src/bot/progressionPlan.ts`) with unit-tested task dependency/resource gating primitives.
+- Movement loop module (`src/bot/movementLoop.ts`) that sends paced `player_auth_input` updates for safe-walk and follow-player goals.
+- CLI and env goal controls: `--goal`, `--follow-player`, `BEDCRAFT_GOAL`, and `BEDCRAFT_FOLLOW_PLAYER`.
+- Runtime player tracking state module for `add_player`/`move_player`/`remove_entity` handling and follow-target resolution.
+
+### Changed
+
+- `join` now stays connected by default and continues receiving chunk stream updates.
+- Added CLI switch `--disconnect-after-first-chunk` and env override `BEDCRAFT_DISCONNECT_AFTER_FIRST_CHUNK` for legacy one-shot behavior.
+- Added bounded runtime telemetry events (`chunk_progress`, `runtime_heartbeat`) to observe long sessions.
+- Logger output switched to compact JSON format with `time` and `severity` fields; redundant `event` field is dropped from payload output.
+- `follow-player` mode now patrols when target coordinates are unavailable and switches to pursuit when target entity packets are discovered.
+
+### Fixed
+
+- `SIGINT` shutdown path now exits join loop gracefully without reporting a false join failure.
+- Prismarine auth console output (for example `[msa] Signed in with Microsoft`) is now bridged into structured logger output.
 
 ## [0.2.0] - 2026-02-21
 

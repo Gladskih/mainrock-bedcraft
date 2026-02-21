@@ -9,6 +9,7 @@ Modern Bedrock LAN hosted worlds use NetherNet (WebRTC over UDP `7551`) rather t
 - `prismarine-auth` handles Microsoft/Xbox authentication.
 - `bedrock-protocol` handles Bedrock packet pipeline (login, start_game, chunks, events).
 - `src/nethernet/*` provides a custom NetherNet transport layer for LAN-hosted worlds and is injected under `bedrock-protocol` when `--transport nethernet` is used.
+- `src/bot/*` contains higher-level bot planning primitives (progression task graph and future behavior modules).
 - `--transport raknet` uses standard RakNet transport via `bedrock-protocol`.
 
 ## Requirements
@@ -60,7 +61,21 @@ Select RakNet backend (default: `raknet-native`):
 npm run join -- --host 192.168.1.50 --account "my-account" --raknet-backend native
 ```
 
-Note: `join` disconnects after the first chunk is received to keep the MVP safe and minimal.
+Force legacy one-shot behavior (disconnect after first chunk):
+
+```bash
+npm run join -- --name "My Server" --account "my-account" --disconnect-after-first-chunk
+```
+
+Follow a specific player once visible to the bot:
+
+```bash
+npm run join -- --name "My Server" --account "my-account" --goal follow-player --follow-player "TargetPlayer"
+```
+
+Default behavior: `join` stays connected, keeps receiving chunk stream updates, and runs until you stop the process (for example, `Ctrl+C`).
+While connected, the bot uses `--goal safe-walk` by default and sends paced `player_auth_input` packets.
+In `follow-player` mode, if the target player is not yet visible in server entity packets, the bot patrols and keeps searching.
 
 ## Development Commands
 
@@ -87,7 +102,10 @@ npm run build
 - `BEDCRAFT_LOG_LEVEL`: `trace|debug|info|warn|error|fatal`.
 - `BEDCRAFT_FORCE_REFRESH`: Set to `true` to force a fresh login.
 - `BEDCRAFT_SKIP_PING`: Set to `true` to skip the initial ping before join.
+- `BEDCRAFT_DISCONNECT_AFTER_FIRST_CHUNK`: Set to `true` to keep legacy one-shot join behavior.
 - `BEDCRAFT_RAKNET_BACKEND`: `native|node` or `raknet-native|raknet-node` (defaults to `raknet-native`).
+- `BEDCRAFT_GOAL`: `safe-walk|follow-player` (defaults to `safe-walk`).
+- `BEDCRAFT_FOLLOW_PLAYER`: Target player name for `follow-player` goal.
 
 ## Authentication and Cache
 
@@ -132,6 +150,7 @@ npm run test:coverage
 - Uses Bedrock LAN discovery + status ping only; no gameplay packets in `scan`.
 - No access to Minecraft installation files or UWP identity.
 - Safe defaults: limited ping frequency, clean disconnect after validation.
+- Logs are compact JSON with `time` and `severity` fields (plus payload and `msg`).
 
 ## Project Policies
 

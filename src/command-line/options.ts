@@ -1,9 +1,13 @@
 import {
+  DEFAULT_MOVEMENT_GOAL,
   DEFAULT_BEDROCK_PORT,
   DEFAULT_DISCOVERY_TIMEOUT_MS,
   DEFAULT_JOIN_TIMEOUT_MS,
   DEFAULT_NETHERNET_PORT,
   DEFAULT_RAKNET_BACKEND,
+  MOVEMENT_GOAL_FOLLOW_PLAYER,
+  MOVEMENT_GOAL_SAFE_WALK,
+  type MovementGoal,
   RAKNET_BACKEND_NODE,
   RAKNET_BACKEND_NATIVE,
   type RaknetBackend
@@ -26,11 +30,14 @@ export type JoinInput = {
   keyFile: string | undefined;
   minecraftVersion: string | undefined;
   joinTimeout: string | undefined;
+  disconnectAfterFirstChunk: boolean | undefined;
   forceRefresh: boolean | undefined;
   skipPing: boolean | undefined;
   raknetBackend: string | undefined;
   discoveryTimeout: string | undefined;
   transport: string | undefined;
+  goal: string | undefined;
+  followPlayer: string | undefined;
 };
 
 export type EnvironmentVariables = Record<string, string | undefined>;
@@ -63,6 +70,14 @@ const normalizeTransport = (value: string | undefined): "raknet" | "nethernet" |
   throw new Error(`Invalid transport: ${value}`);
 };
 
+const normalizeMovementGoal = (value: string | undefined): MovementGoal => {
+  if (!value) return DEFAULT_MOVEMENT_GOAL;
+  const normalized = value.toLowerCase();
+  if (normalized === "safe-walk" || normalized === MOVEMENT_GOAL_SAFE_WALK) return MOVEMENT_GOAL_SAFE_WALK;
+  if (normalized === "follow-player" || normalized === MOVEMENT_GOAL_FOLLOW_PLAYER) return MOVEMENT_GOAL_FOLLOW_PLAYER;
+  throw new Error(`Invalid movement goal: ${value}`);
+};
+
 export const resolveScanOptions = (input: ScanInput, env: EnvironmentVariables): ScanCommandOptions => ({
   timeoutMs: parseNumber(input.timeout ?? env["BEDCRAFT_DISCOVERY_TIMEOUT_MS"], DEFAULT_DISCOVERY_TIMEOUT_MS, "discovery timeout"),
   serverNameFilter: input.name ?? env["BEDCRAFT_SERVER_NAME"],
@@ -76,6 +91,9 @@ export const resolveJoinOptions = (input: JoinInput, env: EnvironmentVariables):
   const defaultPort = requestedTransport === "raknet" ? DEFAULT_BEDROCK_PORT : DEFAULT_NETHERNET_PORT;
   const port = parseNumber(input.port ?? env["BEDCRAFT_PORT"], defaultPort, "port");
   const transport = requestedTransport ?? (port === DEFAULT_NETHERNET_PORT ? "nethernet" : "raknet");
+  const movementGoal = normalizeMovementGoal(input.goal ?? env["BEDCRAFT_GOAL"]);
+  const followPlayerName = input.followPlayer ?? env["BEDCRAFT_FOLLOW_PLAYER"];
+  if (movementGoal === MOVEMENT_GOAL_FOLLOW_PLAYER && !followPlayerName) throw new Error("Follow-player goal requires a target player name");
   return {
     accountName,
     host: input.host ?? env["BEDCRAFT_HOST"],
@@ -87,10 +105,12 @@ export const resolveJoinOptions = (input: JoinInput, env: EnvironmentVariables):
     environmentKey: env["BEDCRAFT_CACHE_KEY"],
     minecraftVersion: input.minecraftVersion ?? env["BEDCRAFT_MINECRAFT_VERSION"] ?? env["BEDCRAFT_VERSION"],
     joinTimeoutMs: parseNumber(input.joinTimeout ?? env["BEDCRAFT_JOIN_TIMEOUT_MS"], DEFAULT_JOIN_TIMEOUT_MS, "join timeout"),
-    disconnectAfterFirstChunk: true,
+    disconnectAfterFirstChunk: input.disconnectAfterFirstChunk ?? parseBoolean(env["BEDCRAFT_DISCONNECT_AFTER_FIRST_CHUNK"]),
     forceRefresh: input.forceRefresh ?? parseBoolean(env["BEDCRAFT_FORCE_REFRESH"]),
     skipPing: input.skipPing ?? parseBoolean(env["BEDCRAFT_SKIP_PING"]),
     raknetBackend: normalizeRaknetBackend(input.raknetBackend ?? env["BEDCRAFT_RAKNET_BACKEND"]),
-    transport
+    transport,
+    movementGoal,
+    followPlayerName
   };
 };

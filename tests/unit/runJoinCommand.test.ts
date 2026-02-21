@@ -2,8 +2,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Authflow } from "prismarine-auth";
 import type { Logger } from "pino";
-import { runJoinCommand, type JoinDependencies } from "../../src/command-line/runJoinCommand.js";
-import { DEFAULT_BEDROCK_PORT, DEFAULT_RAKNET_BACKEND } from "../../src/constants.js";
+import { runJoinCommand, type JoinCommandOptions, type JoinDependencies } from "../../src/command-line/runJoinCommand.js";
+import {
+  DEFAULT_BEDROCK_PORT,
+  DEFAULT_RAKNET_BACKEND,
+  MOVEMENT_GOAL_FOLLOW_PLAYER,
+  MOVEMENT_GOAL_SAFE_WALK
+} from "../../src/constants.js";
 import { selectServerByName } from "../../src/bedrock/serverSelection.js";
 
 type JoinCall = {
@@ -12,6 +17,8 @@ type JoinCall = {
   skipPing: boolean;
   raknetBackend: string;
   transport: string;
+  movementGoal: string;
+  followPlayerName: string | undefined;
   nethernetServerId?: bigint;
   minecraftVersion?: string;
 };
@@ -19,6 +26,27 @@ type JoinCall = {
 const createLogger = (): Logger => ({
   info: () => undefined
 } as unknown as Logger);
+
+const createBaseJoinOptions = (overrides: Partial<JoinCommandOptions> = {}): JoinCommandOptions => ({
+  accountName: "user",
+  host: "127.0.0.1",
+  port: DEFAULT_BEDROCK_PORT,
+  serverName: undefined,
+  transport: "raknet",
+  discoveryTimeoutMs: 1,
+  cacheDirectory: undefined,
+  keyFilePath: undefined,
+  environmentKey: undefined,
+  minecraftVersion: undefined,
+  joinTimeoutMs: 1,
+  disconnectAfterFirstChunk: true,
+  forceRefresh: false,
+  skipPing: false,
+  raknetBackend: DEFAULT_RAKNET_BACKEND,
+  movementGoal: MOVEMENT_GOAL_SAFE_WALK,
+  followPlayerName: undefined,
+  ...overrides
+});
 
 const createDependencies = () => {
   const calls: { join?: JoinCall } = {};
@@ -35,6 +63,8 @@ const createDependencies = () => {
         skipPing: options.skipPing,
         raknetBackend: options.raknetBackend,
         transport: options.transport,
+        movementGoal: options.movementGoal,
+        followPlayerName: options.followPlayerName,
         ...(options.nethernetServerId !== undefined ? { nethernetServerId: options.nethernetServerId } : {}),
         ...(options.minecraftVersion !== undefined ? { minecraftVersion: options.minecraftVersion } : {})
       };
@@ -64,128 +94,52 @@ const createServer = (host: string, motd: string) => ({
 
 void test("runJoinCommand requires host or name", async () => {
   const { dependencies } = createDependencies();
-  await assert.rejects(() => runJoinCommand({
-    accountName: "user",
-    host: undefined,
-    port: DEFAULT_BEDROCK_PORT,
-    serverName: undefined,
-    transport: "raknet",
-    discoveryTimeoutMs: 1,
-    cacheDirectory: undefined,
-    keyFilePath: undefined,
-    environmentKey: undefined,
-    minecraftVersion: undefined,
-    joinTimeoutMs: 1,
-    disconnectAfterFirstChunk: true,
-    forceRefresh: false,
-    skipPing: false,
-    raknetBackend: DEFAULT_RAKNET_BACKEND
-  }, createLogger(), dependencies));
+  await assert.rejects(() => runJoinCommand(
+    createBaseJoinOptions({ host: undefined, serverName: undefined }),
+    createLogger(),
+    dependencies
+  ));
 });
 
 void test("runJoinCommand joins by host", async () => {
   const { dependencies, calls } = createDependencies();
-  await runJoinCommand({
-    accountName: "user",
-    host: "127.0.0.1",
-    port: DEFAULT_BEDROCK_PORT,
-    serverName: undefined,
-    transport: "raknet",
-    discoveryTimeoutMs: 1,
-    cacheDirectory: undefined,
-    keyFilePath: undefined,
-    environmentKey: undefined,
-    minecraftVersion: undefined,
-    joinTimeoutMs: 1,
-    disconnectAfterFirstChunk: true,
-    forceRefresh: false,
-    skipPing: false,
-    raknetBackend: DEFAULT_RAKNET_BACKEND
-  }, createLogger(), dependencies);
+  await runJoinCommand(createBaseJoinOptions(), createLogger(), dependencies);
   assert.deepEqual(calls.join, {
     host: "127.0.0.1",
     port: DEFAULT_BEDROCK_PORT,
     skipPing: false,
     raknetBackend: DEFAULT_RAKNET_BACKEND,
-    transport: "raknet"
+    transport: "raknet",
+    movementGoal: MOVEMENT_GOAL_SAFE_WALK,
+    followPlayerName: undefined
   });
 });
 
 void test("runJoinCommand joins by name", async () => {
   const { dependencies, calls } = createDependencies();
-  const server = createServer("192.168.1.10", "Server");
-  dependencies.discoverLanServers = async () => [server];
-  await runJoinCommand({
-    accountName: "user",
-    host: undefined,
-    port: DEFAULT_BEDROCK_PORT,
-    serverName: "Server",
-    transport: "raknet",
-    discoveryTimeoutMs: 1,
-    cacheDirectory: undefined,
-    keyFilePath: undefined,
-    environmentKey: undefined,
-    minecraftVersion: undefined,
-    joinTimeoutMs: 1,
-    disconnectAfterFirstChunk: true,
-    forceRefresh: false,
-    skipPing: false,
-    raknetBackend: DEFAULT_RAKNET_BACKEND
-  }, createLogger(), dependencies);
+  dependencies.discoverLanServers = async () => [createServer("192.168.1.10", "Server")];
+  await runJoinCommand(createBaseJoinOptions({ host: undefined, serverName: "Server" }), createLogger(), dependencies);
   assert.deepEqual(calls.join, {
     host: "192.168.1.10",
     port: DEFAULT_BEDROCK_PORT,
     skipPing: false,
     raknetBackend: DEFAULT_RAKNET_BACKEND,
-    transport: "raknet"
+    transport: "raknet",
+    movementGoal: MOVEMENT_GOAL_SAFE_WALK,
+    followPlayerName: undefined
   });
 });
 
 void test("runJoinCommand rejects when no servers match", async () => {
   const { dependencies } = createDependencies();
   dependencies.discoverLanServers = async () => [];
-  await assert.rejects(() => runJoinCommand({
-    accountName: "user",
-    host: undefined,
-    port: DEFAULT_BEDROCK_PORT,
-    serverName: "Missing",
-    transport: "raknet",
-    discoveryTimeoutMs: 1,
-    cacheDirectory: undefined,
-    keyFilePath: undefined,
-    environmentKey: undefined,
-    minecraftVersion: undefined,
-    joinTimeoutMs: 1,
-    disconnectAfterFirstChunk: true,
-    forceRefresh: false,
-    skipPing: false,
-    raknetBackend: DEFAULT_RAKNET_BACKEND
-  }, createLogger(), dependencies));
+  await assert.rejects(() => runJoinCommand(createBaseJoinOptions({ host: undefined, serverName: "Missing" }), createLogger(), dependencies));
 });
 
 void test("runJoinCommand rejects on multiple matches", async () => {
   const { dependencies } = createDependencies();
-  dependencies.discoverLanServers = async () => [
-    createServer("192.168.1.10", "Server"),
-    createServer("192.168.1.11", "Server")
-  ];
-  await assert.rejects(() => runJoinCommand({
-    accountName: "user",
-    host: undefined,
-    port: DEFAULT_BEDROCK_PORT,
-    serverName: "Server",
-    transport: "raknet",
-    discoveryTimeoutMs: 1,
-    cacheDirectory: undefined,
-    keyFilePath: undefined,
-    environmentKey: undefined,
-    minecraftVersion: undefined,
-    joinTimeoutMs: 1,
-    disconnectAfterFirstChunk: true,
-    forceRefresh: false,
-    skipPing: false,
-    raknetBackend: DEFAULT_RAKNET_BACKEND
-  }, createLogger(), dependencies));
+  dependencies.discoverLanServers = async () => [createServer("192.168.1.10", "Server"), createServer("192.168.1.11", "Server")];
+  await assert.rejects(() => runJoinCommand(createBaseJoinOptions({ host: undefined, serverName: "Server" }), createLogger(), dependencies));
 });
 
 void test("runJoinCommand passes cache overrides to auth flow", async () => {
@@ -197,23 +151,7 @@ void test("runJoinCommand passes cache overrides to auth flow", async () => {
     receivedKeyFilePath = options.keyFilePath;
     return { authflow: { username: "user" } as Authflow, keySource: "environment" };
   };
-  await runJoinCommand({
-    accountName: "user",
-    host: "127.0.0.1",
-    port: DEFAULT_BEDROCK_PORT,
-    serverName: undefined,
-    transport: "raknet",
-    discoveryTimeoutMs: 1,
-    cacheDirectory: "override-cache",
-    keyFilePath: "override-key",
-    environmentKey: "secret",
-    minecraftVersion: undefined,
-    joinTimeoutMs: 1,
-    disconnectAfterFirstChunk: true,
-    forceRefresh: false,
-    skipPing: false,
-    raknetBackend: DEFAULT_RAKNET_BACKEND
-  }, createLogger(), dependencies);
+  await runJoinCommand(createBaseJoinOptions({ cacheDirectory: "override-cache", keyFilePath: "override-key", environmentKey: "secret" }), createLogger(), dependencies);
   assert.equal(receivedCacheDirectory, "override-cache");
   assert.equal(receivedKeyFilePath, "override-key");
 });
@@ -235,44 +173,23 @@ void test("runJoinCommand logs device code callback", async () => {
     });
     return { authflow: { username: "user" } as Authflow, keySource: "environment" };
   };
-  await runJoinCommand({
-    accountName: "user",
-    host: "127.0.0.1",
-    port: DEFAULT_BEDROCK_PORT,
-    serverName: undefined,
-    transport: "raknet",
-    discoveryTimeoutMs: 1,
-    cacheDirectory: undefined,
-    keyFilePath: undefined,
-    environmentKey: undefined,
-    minecraftVersion: undefined,
-    joinTimeoutMs: 1,
-    disconnectAfterFirstChunk: true,
-    forceRefresh: false,
-    skipPing: false,
-    raknetBackend: DEFAULT_RAKNET_BACKEND
-  }, logger, dependencies);
+  await runJoinCommand(createBaseJoinOptions(), logger, dependencies);
   assert.equal(events.some((event) => event.event === "device_code"), true);
 });
 
 void test("runJoinCommand passes minecraft version when provided", async () => {
   const { dependencies, calls } = createDependencies();
-  await runJoinCommand({
-    accountName: "user",
-    host: "127.0.0.1",
-    port: DEFAULT_BEDROCK_PORT,
-    serverName: undefined,
-    transport: "raknet",
-    discoveryTimeoutMs: 1,
-    cacheDirectory: undefined,
-    keyFilePath: undefined,
-    environmentKey: undefined,
-    minecraftVersion: "1.21.93",
-    joinTimeoutMs: 1,
-    disconnectAfterFirstChunk: true,
-    forceRefresh: false,
-    skipPing: false,
-    raknetBackend: DEFAULT_RAKNET_BACKEND
-  }, createLogger(), dependencies);
+  await runJoinCommand(createBaseJoinOptions({ minecraftVersion: "1.21.93" }), createLogger(), dependencies);
   assert.equal(calls.join?.minecraftVersion, "1.21.93");
+});
+
+void test("runJoinCommand passes follow-player goal", async () => {
+  const { dependencies, calls } = createDependencies();
+  await runJoinCommand(
+    createBaseJoinOptions({ movementGoal: MOVEMENT_GOAL_FOLLOW_PLAYER, followPlayerName: "TargetPlayer" }),
+    createLogger(),
+    dependencies
+  );
+  assert.equal(calls.join?.movementGoal, MOVEMENT_GOAL_FOLLOW_PLAYER);
+  assert.equal(calls.join?.followPlayerName, "TargetPlayer");
 });
