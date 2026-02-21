@@ -9,22 +9,18 @@ const withoutEventField = (value: Record<string, unknown>): Record<string, unkno
   return fields;
 };
 
-export const normalizeInfoSeverityLine = (line: string): string => {
+export const stripSeverityFieldFromJsonLine = (line: string): string => {
   if (line.length === 0) return line;
-  const endsWithCarriageReturnLineFeed = line.endsWith("\r\n");
-  const endsWithLineFeed = !endsWithCarriageReturnLineFeed && line.endsWith("\n");
-  const lineWithoutLineEnding = endsWithCarriageReturnLineFeed
-    ? line.slice(0, -2)
-    : endsWithLineFeed
-      ? line.slice(0, -1)
-      : line;
-  const lineEnding = endsWithCarriageReturnLineFeed ? "\r\n" : endsWithLineFeed ? "\n" : "";
+  const hasWindowsLineEnding = line.endsWith("\r\n");
+  const hasUnixLineEnding = !hasWindowsLineEnding && line.endsWith("\n");
+  const lineEnding = hasWindowsLineEnding ? "\r\n" : hasUnixLineEnding ? "\n" : "";
+  const lineWithoutEnding = lineEnding.length > 0 ? line.slice(0, -lineEnding.length) : line;
   try {
-    const parsed = JSON.parse(lineWithoutLineEnding) as Record<string, unknown>;
-    if (!("severity" in parsed)) return line;
-    const normalized = { ...parsed };
-    delete normalized["severity"];
-    return `${JSON.stringify(normalized)}${lineEnding}`;
+    const parsedLine = JSON.parse(lineWithoutEnding) as Record<string, unknown>;
+    if (!("severity" in parsedLine)) return line;
+    const normalizedLine = { ...parsedLine };
+    delete normalizedLine["severity"];
+    return `${JSON.stringify(normalizedLine)}${lineEnding}`;
   } catch {
     return line;
   }
@@ -40,7 +36,7 @@ export const createLogger = (level?: string): Logger => {
       log: withoutEventField
     },
     hooks: {
-      streamWrite: normalizeInfoSeverityLine
+      streamWrite: stripSeverityFieldFromJsonLine
     }
   };
   return pino(options, process.stdout);

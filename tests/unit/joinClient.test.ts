@@ -4,7 +4,11 @@ import { test } from "node:test";
 import type { Authflow } from "prismarine-auth";
 import type { Logger } from "pino";
 import { joinBedrockServer } from "../../src/bedrock/joinClient.js";
-import { DEFAULT_RAKNET_BACKEND, MOVEMENT_GOAL_FOLLOW_PLAYER, MOVEMENT_GOAL_SAFE_WALK } from "../../src/constants.js";
+import {
+  DEFAULT_RAKNET_BACKEND,
+  MOVEMENT_GOAL_FOLLOW_PLAYER,
+  MOVEMENT_GOAL_SAFE_WALK
+} from "../../src/constants.js";
 
 class FakeClient extends EventEmitter {
   disconnectCalled = false;
@@ -43,6 +47,7 @@ const createRaknetJoinOptions = (client: FakeClient, overrides: Partial<JoinOpti
   transport: "raknet",
   movementGoal: MOVEMENT_GOAL_SAFE_WALK,
   followPlayerName: undefined,
+  followCoordinates: undefined,
   clientFactory: () => client,
   ...overrides
 });
@@ -188,7 +193,8 @@ void test("joinBedrockServer rejects nethernet join without server id", async ()
     raknetBackend: DEFAULT_RAKNET_BACKEND,
     transport: "nethernet",
     movementGoal: MOVEMENT_GOAL_SAFE_WALK,
-    followPlayerName: undefined
+    followPlayerName: undefined,
+    followCoordinates: undefined
   }));
 });
 
@@ -210,6 +216,7 @@ void test("joinBedrockServer uses nethernet client factory", async () => {
     transport: "nethernet",
     movementGoal: MOVEMENT_GOAL_SAFE_WALK,
     followPlayerName: undefined,
+    followCoordinates: undefined,
     nethernetServerId: 5n,
     nethernetClientId: 6n,
     nethernetClientFactory: (options, _logger, serverId, clientId) => {

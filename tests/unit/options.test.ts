@@ -32,6 +32,8 @@ const emptyJoinInput = {
   discoveryTimeout: undefined,
   goal: undefined,
   followPlayer: undefined,
+  followCoordinates: undefined,
+  chunkRadius: undefined,
   reconnectRetries: undefined,
   reconnectBaseDelay: undefined,
   reconnectMaxDelay: undefined
@@ -63,6 +65,7 @@ void test("resolveJoinOptions reads environment", () => {
   assert.equal(options.disconnectAfterFirstChunk, false);
   assert.equal(options.movementGoal, MOVEMENT_GOAL_SAFE_WALK);
   assert.equal(options.followPlayerName, undefined);
+  assert.equal(typeof options.viewDistanceChunks, "number");
 });
 
 void test("resolveJoinOptions rejects invalid port", () => {
@@ -171,6 +174,14 @@ void test("resolveJoinOptions reads reconnect settings from environment", () => 
   assert.equal(options.reconnectMaxDelayMs, 1000);
 });
 
+void test("resolveJoinOptions reads chunk radius from environment", () => {
+  const options = resolveJoinOptions(
+    { ...emptyJoinInput, account: "user" },
+    { BEDCRAFT_CHUNK_RADIUS: "13" }
+  );
+  assert.equal(options.viewDistanceChunks, 13);
+});
+
 void test("resolveJoinOptions rejects negative reconnect retries", () => {
   assert.throws(() => resolveJoinOptions(
     { ...emptyJoinInput, account: "user", reconnectRetries: "-1" },
@@ -209,6 +220,7 @@ void test("resolvePlayersOptions uses defaults", () => {
     discoveryTimeout: undefined,
     transport: undefined,
     wait: undefined,
+    chunkRadius: undefined,
     reconnectRetries: undefined,
     reconnectBaseDelay: undefined,
     reconnectMaxDelay: undefined
@@ -232,6 +244,7 @@ void test("resolvePlayersOptions reads wait timeout from environment", () => {
     discoveryTimeout: undefined,
     transport: undefined,
     wait: undefined,
+    chunkRadius: undefined,
     reconnectRetries: undefined,
     reconnectBaseDelay: undefined,
     reconnectMaxDelay: undefined
@@ -254,6 +267,7 @@ void test("resolvePlayersOptions rejects invalid wait timeout", () => {
     discoveryTimeout: undefined,
     transport: undefined,
     wait: "bad",
+    chunkRadius: undefined,
     reconnectRetries: undefined,
     reconnectBaseDelay: undefined,
     reconnectMaxDelay: undefined

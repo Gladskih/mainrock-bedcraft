@@ -16,6 +16,7 @@ export type PlayersCommandOptions = {
   forceRefresh: boolean;
   skipPing: boolean;
   raknetBackend: RaknetBackend;
+  viewDistanceChunks?: number;
   waitMs: number;
   reconnectMaxRetries?: number;
   reconnectBaseDelayMs?: number;
@@ -47,6 +48,8 @@ export const runPlayersCommand = async (
     raknetBackend: options.raknetBackend,
     movementGoal: MOVEMENT_GOAL_SAFE_WALK,
     followPlayerName: undefined,
+    followCoordinates: undefined,
+    ...(options.viewDistanceChunks !== undefined ? { viewDistanceChunks: options.viewDistanceChunks } : {}),
     ...(options.reconnectMaxRetries !== undefined ? { reconnectMaxRetries: options.reconnectMaxRetries } : {}),
     ...(options.reconnectBaseDelayMs !== undefined ? { reconnectBaseDelayMs: options.reconnectBaseDelayMs } : {}),
     ...(options.reconnectMaxDelayMs !== undefined ? { reconnectMaxDelayMs: options.reconnectMaxDelayMs } : {}),

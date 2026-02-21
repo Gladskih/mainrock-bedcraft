@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createLogger, normalizeInfoSeverityLine } from "../../src/logging/logger.js";
+import { createLogger, stripSeverityFieldFromJsonLine } from "../../src/logging/logger.js";
 
 void test("createLogger sets level", () => {
   const logger = createLogger("debug");
@@ -12,27 +12,13 @@ void test("createLogger defaults level", () => {
   assert.equal(logger.level, "info");
 });
 
-void test("normalizeInfoSeverityLine removes null severity", () => {
+void test("stripSeverityFieldFromJsonLine removes severity field", () => {
   assert.equal(
-    normalizeInfoSeverityLine("{\"severity\":\"info\",\"time\":\"t\",\"msg\":\"m\"}"),
-    "{\"time\":\"t\",\"msg\":\"m\"}"
+    stripSeverityFieldFromJsonLine("{\"severity\":\"info\",\"time\":\"2026-02-21T00:00:00.000Z\",\"msg\":\"hello\"}\n"),
+    "{\"time\":\"2026-02-21T00:00:00.000Z\",\"msg\":\"hello\"}\n"
   );
 });
 
-void test("normalizeInfoSeverityLine keeps non-null severity", () => {
-  assert.equal(
-    normalizeInfoSeverityLine("{\"severity\":\"warn\",\"time\":\"t\",\"msg\":\"m\"}"),
-    "{\"time\":\"t\",\"msg\":\"m\"}"
-  );
-});
-
-void test("normalizeInfoSeverityLine keeps non-json input", () => {
-  assert.equal(normalizeInfoSeverityLine("plain text"), "plain text");
-});
-
-void test("normalizeInfoSeverityLine preserves trailing newline", () => {
-  assert.equal(
-    normalizeInfoSeverityLine("{\"severity\":\"info\",\"time\":\"t\",\"msg\":\"m\"}\n"),
-    "{\"time\":\"t\",\"msg\":\"m\"}\n"
-  );
+void test("stripSeverityFieldFromJsonLine keeps non-json lines untouched", () => {
+  assert.equal(stripSeverityFieldFromJsonLine("plain text"), "plain text");
 });

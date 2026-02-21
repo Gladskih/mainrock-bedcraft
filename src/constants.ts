@@ -13,13 +13,30 @@ export const DEFAULT_MOVEMENT_LOOP_INTERVAL_MS = 100; // 10Hz movement updates a
 export const DEFAULT_WALK_SPEED_BLOCKS_PER_SECOND = 1.1; // Conservative walking speed below sprint speed to reduce server corrections and anti-cheat risk.
 export const DEFAULT_FOLLOW_PLAYER_STOP_DISTANCE_BLOCKS = 1.75; // Keep a small offset from the target player to avoid collision jitter and repeated server corrections.
 export const DEFAULT_FOLLOW_PLAYER_WAIT_LOG_INTERVAL_MS = 5000; // Waiting logs are throttled to once every 5s to keep diagnostics useful without flooding output.
+export const DEFAULT_MOVEMENT_SAFETY_DROP_TRIGGER_BLOCKS = 1.5; // A drop larger than normal walking jitter indicates possible cliff/ledge descent and triggers emergency recovery.
+export const DEFAULT_MOVEMENT_SAFETY_DESCENT_STEP_BLOCKS = 0.2; // Repeated small downward deltas suggest sliding into water/lava/slope and should trigger conservative recovery.
+export const DEFAULT_MOVEMENT_SAFETY_DESCENT_TICKS = 3; // Three consecutive descent ticks (~300ms at 10Hz) balance responsiveness and false-positive resistance.
+export const DEFAULT_MOVEMENT_SAFETY_TERRAIN_RECOVERY_MS = 1800; // Hold/reverse movement for ~1.8s after terrain danger to avoid repeatedly stepping into the same hazard.
+export const DEFAULT_MOVEMENT_SAFETY_LOW_AIR_THRESHOLD = 6; // Air below six ticks means urgent breathing risk, so force upward recovery behavior.
+export const DEFAULT_MOVEMENT_SAFETY_HEALTH_LOSS_TRIGGER = 2; // Two health points lost in one update is treated as meaningful danger (lava/fall/combat) for emergency handling.
+export const DEFAULT_MOVEMENT_SAFETY_AIR_RECOVERY_MS = 2000; // Emergency jump/hold window after low-air or damage to stabilize before resuming pursuit.
+export const DEFAULT_MOVEMENT_SAFETY_PANIC_STRIKE_WINDOW_MS = 15000; // Danger strikes are aggregated over 15s to detect repeated exposure to lava/water/cliffs.
+export const DEFAULT_MOVEMENT_SAFETY_PANIC_STRIKE_LIMIT = 3; // Three strikes inside the window trigger a stronger safety circuit-breaker mode.
+export const DEFAULT_MOVEMENT_SAFETY_PANIC_RECOVERY_MS = 4000; // During panic recovery the bot stops pursuit and focuses on escaping immediate danger.
+export const DEFAULT_MOVEMENT_SAFETY_LOG_INTERVAL_MS = 2000; // Safety logs are throttled to once per two seconds to stay informative without flooding.
 export const DEFAULT_PLAYER_LIST_WAIT_MS = 8000; // Player-list probe waits 8s after login so server has enough time to send add/remove records.
 export const DEFAULT_PLAYER_LIST_SETTLE_MS = 100; // After at least one player-list update, wait briefly for follow-up add/remove packets before finishing probe mode while aiming to exit before chunk stream starts.
 export const MOVEMENT_GOAL_SAFE_WALK = "safe_walk"; // Default runtime goal keeps the bot moving for connectivity and packet-flow validation.
 export const MOVEMENT_GOAL_FOLLOW_PLAYER = "follow_player"; // Follow a specific online player using server-reported entity positions.
-export type MovementGoal = typeof MOVEMENT_GOAL_SAFE_WALK | typeof MOVEMENT_GOAL_FOLLOW_PLAYER;
+export const MOVEMENT_GOAL_FOLLOW_COORDINATES = "follow_coordinates"; // Move toward explicit world coordinates and hold position on arrival.
+export const DEFAULT_FOLLOW_COORDINATES_STOP_DISTANCE_BLOCKS = 1.5; // Stop close to target coordinate to reduce oscillation from server corrections.
+export type MovementGoal =
+  | typeof MOVEMENT_GOAL_SAFE_WALK
+  | typeof MOVEMENT_GOAL_FOLLOW_PLAYER
+  | typeof MOVEMENT_GOAL_FOLLOW_COORDINATES;
 export const DEFAULT_MOVEMENT_GOAL: MovementGoal = MOVEMENT_GOAL_SAFE_WALK; // Safe walk remains default behavior when no explicit gameplay goal is selected.
 export const DEFAULT_VIEW_DISTANCE_CHUNKS = 10; // Bedrock-protocol createClient default; used when requesting initial chunk radius.
+export const MAX_CHUNK_RADIUS_REQUEST_CHUNKS = 255; // Protocol-level upper bound for request_chunk_radius max_radius (u8).
 export const DEFAULT_REQUEST_CHUNK_RADIUS_DELAY_MS = 500; // Bedrock-protocol waits briefly before requesting chunk radius to allow server init packets to land first.
 export const DEFAULT_RECONNECT_MAX_RETRIES = 2; // Two retries (three total attempts) balance resilience against transient LAN issues and anti-flood safety.
 export const DEFAULT_RECONNECT_BASE_DELAY_MS = 1000; // First reconnect delay is one second to avoid immediate reconnect bursts.

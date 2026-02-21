@@ -6,6 +6,7 @@ import { runJoinCommand, type JoinCommandOptions, type JoinDependencies } from "
 import {
   DEFAULT_BEDROCK_PORT,
   DEFAULT_RAKNET_BACKEND,
+  MOVEMENT_GOAL_FOLLOW_COORDINATES,
   MOVEMENT_GOAL_FOLLOW_PLAYER,
   MOVEMENT_GOAL_SAFE_WALK
 } from "../../src/constants.js";
@@ -19,6 +20,7 @@ type JoinCall = {
   transport: string;
   movementGoal: string;
   followPlayerName: string | undefined;
+  followCoordinates: { x: number; y: number; z: number } | undefined;
   nethernetServerId?: bigint;
   minecraftVersion?: string;
 };
@@ -46,6 +48,7 @@ const createBaseJoinOptions = (overrides: Partial<JoinCommandOptions> = {}): Joi
   raknetBackend: DEFAULT_RAKNET_BACKEND,
   movementGoal: MOVEMENT_GOAL_SAFE_WALK,
   followPlayerName: undefined,
+  followCoordinates: undefined,
   ...overrides
 });
 
@@ -66,6 +69,7 @@ const createDependencies = () => {
         transport: options.transport,
         movementGoal: options.movementGoal,
         followPlayerName: options.followPlayerName,
+        followCoordinates: options.followCoordinates,
         ...(options.nethernetServerId !== undefined ? { nethernetServerId: options.nethernetServerId } : {}),
         ...(options.minecraftVersion !== undefined ? { minecraftVersion: options.minecraftVersion } : {})
       };
@@ -114,7 +118,8 @@ void test("runJoinCommand joins by host", async () => {
     raknetBackend: DEFAULT_RAKNET_BACKEND,
     transport: "raknet",
     movementGoal: MOVEMENT_GOAL_SAFE_WALK,
-    followPlayerName: undefined
+    followPlayerName: undefined,
+    followCoordinates: undefined
   });
 });
 
@@ -129,7 +134,8 @@ void test("runJoinCommand joins by name", async () => {
     raknetBackend: DEFAULT_RAKNET_BACKEND,
     transport: "raknet",
     movementGoal: MOVEMENT_GOAL_SAFE_WALK,
-    followPlayerName: undefined
+    followPlayerName: undefined,
+    followCoordinates: undefined
   });
 });
 
@@ -195,6 +201,21 @@ void test("runJoinCommand passes follow-player goal", async () => {
   );
   assert.equal(calls.join?.movementGoal, MOVEMENT_GOAL_FOLLOW_PLAYER);
   assert.equal(calls.join?.followPlayerName, "TargetPlayer");
+  assert.equal(calls.join?.followCoordinates, undefined);
+});
+
+void test("runJoinCommand passes follow-coordinates goal", async () => {
+  const { dependencies, calls } = createDependencies();
+  await runJoinCommand(
+    createBaseJoinOptions({
+      movementGoal: MOVEMENT_GOAL_FOLLOW_COORDINATES,
+      followCoordinates: { x: -2962, y: 65, z: -2100 }
+    }),
+    createLogger(),
+    dependencies
+  );
+  assert.equal(calls.join?.movementGoal, MOVEMENT_GOAL_FOLLOW_COORDINATES);
+  assert.deepEqual(calls.join?.followCoordinates, { x: -2962, y: 65, z: -2100 });
 });
 
 void test("runJoinCommand retries after failed join and then succeeds", async () => {

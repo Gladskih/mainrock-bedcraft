@@ -3,7 +3,11 @@ import { EventEmitter } from "node:events";
 import { test } from "node:test";
 import type { Logger } from "pino";
 import { configureMovementLoop } from "../../src/bot/movementLoop.js";
-import { MOVEMENT_GOAL_FOLLOW_PLAYER, MOVEMENT_GOAL_SAFE_WALK } from "../../src/constants.js";
+import {
+  MOVEMENT_GOAL_FOLLOW_COORDINATES,
+  MOVEMENT_GOAL_FOLLOW_PLAYER,
+  MOVEMENT_GOAL_SAFE_WALK
+} from "../../src/constants.js";
 
 type QueueCall = { name: string; params: object };
 
@@ -100,4 +104,100 @@ void test("configureMovementLoop follow-player mode moves toward target", async 
   movementLoop.cleanup();
   assert.equal(fakeClient.queueCalls.some((call) => call.name === "player_auth_input"), true);
   assert.equal(currentPosition.x > 0, true);
+});
+
+void test("configureMovementLoop follow-coordinates mode moves toward target", async () => {
+  const fakeClient = new FakeClient();
+  let currentPosition = { x: 0, y: 70, z: 0 };
+  let tick = 0n;
+  const movementLoop = configureMovementLoop({
+    client: fakeClient,
+    logger: createLogger(),
+    movementGoal: MOVEMENT_GOAL_FOLLOW_COORDINATES,
+    followCoordinates: { x: 5, y: 70, z: 0 },
+    getPosition: () => currentPosition,
+    setPosition: (position) => {
+      currentPosition = position;
+    },
+    getTick: () => {
+      tick += 1n;
+      return tick;
+    }
+  });
+  await new Promise((resolve) => setTimeout(resolve, 130));
+  movementLoop.cleanup();
+  assert.equal(fakeClient.queueCalls.some((call) => call.name === "player_auth_input"), true);
+  assert.equal(currentPosition.x > 0, true);
+});
+
+void test("configureMovementLoop follow-coordinates mode stops near target", async () => {
+  const fakeClient = new FakeClient();
+  let currentPosition = { x: 10, y: 70, z: 10 };
+  const movementLoop = configureMovementLoop({
+    client: fakeClient,
+    logger: createLogger(),
+    movementGoal: MOVEMENT_GOAL_FOLLOW_COORDINATES,
+    followCoordinates: { x: 10.5, y: 70, z: 10.5 },
+    getPosition: () => currentPosition,
+    setPosition: (position) => {
+      currentPosition = position;
+    },
+    getTick: () => 1n
+  });
+  await new Promise((resolve) => setTimeout(resolve, 130));
+  movementLoop.cleanup();
+  const stoppedMove = fakeClient.queueCalls.some((call) => {
+    if (call.name !== "player_auth_input") return false;
+    const movementVector = (call.params as { move_vector?: { x?: number; y?: number } }).move_vector;
+    return (movementVector?.x ?? 1) === 0 && (movementVector?.y ?? 1) === 0;
+  });
+  assert.equal(stoppedMove, true);
+});
+
+void test("configureMovementLoop applies terrain safety recovery after local drop", async () => {
+  const fakeClient = new FakeClient();
+  let currentPosition = { x: 0, y: 70, z: 0 };
+  const movementLoop = configureMovementLoop({
+    client: fakeClient,
+    logger: createLogger(),
+    movementGoal: MOVEMENT_GOAL_SAFE_WALK,
+    getPosition: () => currentPosition,
+    setPosition: (position) => {
+      currentPosition = position;
+    },
+    getTick: () => 1n
+  });
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  currentPosition = { x: currentPosition.x, y: currentPosition.y - 2, z: currentPosition.z };
+  await new Promise((resolve) => setTimeout(resolve, 140));
+  movementLoop.cleanup();
+  const hasSafetyJump = fakeClient.queueCalls.some((call) => {
+    const inputData = (call.params as { input_data?: { jump?: boolean } }).input_data;
+    return inputData?.jump === true;
+  });
+  assert.equal(hasSafetyJump, true);
+});
+
+void test("configureMovementLoop applies low-air safety recovery from attributes", async () => {
+  const fakeClient = new FakeClient();
+  let currentPosition = { x: 0, y: 70, z: 0 };
+  const movementLoop = configureMovementLoop({
+    client: fakeClient,
+    logger: createLogger(),
+    movementGoal: MOVEMENT_GOAL_SAFE_WALK,
+    getPosition: () => currentPosition,
+    setPosition: (position) => {
+      currentPosition = position;
+    },
+    getTick: () => 1n,
+    getLocalRuntimeEntityId: () => "1"
+  });
+  fakeClient.emit("update_attributes", { runtime_id: 1n, attributes: [{ name: "minecraft:air", current: 2 }] });
+  await new Promise((resolve) => setTimeout(resolve, 140));
+  movementLoop.cleanup();
+  const hasSafetyJump = fakeClient.queueCalls.some((call) => {
+    const inputData = (call.params as { input_data?: { jump?: boolean } }).input_data;
+    return inputData?.jump === true;
+  });
+  assert.equal(hasSafetyJump, true);
 });

@@ -31,6 +31,7 @@ void test("joinBedrockServer resolves hostname for raknet-node backend", async (
     transport: "raknet",
     movementGoal: MOVEMENT_GOAL_SAFE_WALK,
     followPlayerName: undefined,
+    followCoordinates: undefined,
     lookupHost: async () => "203.0.113.10",
     clientFactory: (options) => {
       receivedHost = options.host;

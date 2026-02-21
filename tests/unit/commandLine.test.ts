@@ -28,7 +28,8 @@ const createResolvedJoinOptions = (): JoinCommandOptions => ({
   skipPing: false,
   raknetBackend: DEFAULT_RAKNET_BACKEND,
   movementGoal: MOVEMENT_GOAL_SAFE_WALK,
-  followPlayerName: undefined
+  followPlayerName: undefined,
+  followCoordinates: undefined
 });
 
 const createResolvedPlayersOptions = (): PlayersCommandOptions => ({

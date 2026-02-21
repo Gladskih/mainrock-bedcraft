@@ -1,4 +1,5 @@
 import { getAvailableProgressionTasks } from "../bot/progressionPlan.js";
+import { MOVEMENT_GOAL_FOLLOW_COORDINATES, MOVEMENT_GOAL_FOLLOW_PLAYER } from "../constants.js";
 import { createSessionMovementLoop } from "./sessionMovementLoop.js";
 import type { ClientLike } from "./clientTypes.js";
 import type { JoinOptions } from "./joinClient.js";
@@ -11,21 +12,50 @@ type StartSessionMovementLoopWithPlannerOptions = {
   getPosition: () => Vector3 | null;
   getTick: () => bigint;
   setPosition: (position: Vector3) => void;
+  getLocalRuntimeEntityId: () => string | null;
 };
 
 export const startSessionMovementLoopWithPlanner = (
   options: StartSessionMovementLoopWithPlannerOptions
 ): { cleanup: () => void } => {
-  const movementLoop = createSessionMovementLoop({
-    client: options.client,
-    logger: options.resolvedOptions.logger,
-    movementGoal: options.resolvedOptions.movementGoal,
-    followPlayerName: options.resolvedOptions.followPlayerName,
-    getFollowTargetPosition: () => options.playerTrackingState.resolveFollowTargetPosition(),
-    getPosition: options.getPosition,
-    setPosition: options.setPosition,
-    getTick: options.getTick
-  });
+  const movementLoop = options.resolvedOptions.movementGoal === MOVEMENT_GOAL_FOLLOW_PLAYER
+    ? createSessionMovementLoop({
+      client: options.client,
+      logger: options.resolvedOptions.logger,
+      movementGoal: MOVEMENT_GOAL_FOLLOW_PLAYER,
+      followPlayerName: options.resolvedOptions.followPlayerName,
+      followCoordinates: undefined,
+      getFollowTargetPosition: () => options.playerTrackingState.resolveFollowTargetPosition(),
+      getPosition: options.getPosition,
+      setPosition: options.setPosition,
+      getTick: options.getTick,
+      getLocalRuntimeEntityId: options.getLocalRuntimeEntityId
+    })
+    : options.resolvedOptions.movementGoal === MOVEMENT_GOAL_FOLLOW_COORDINATES
+      ? createSessionMovementLoop({
+        client: options.client,
+        logger: options.resolvedOptions.logger,
+        movementGoal: MOVEMENT_GOAL_FOLLOW_COORDINATES,
+        followPlayerName: undefined,
+        followCoordinates: options.resolvedOptions.followCoordinates,
+        getFollowTargetPosition: () => null,
+        getPosition: options.getPosition,
+        setPosition: options.setPosition,
+        getTick: options.getTick,
+        getLocalRuntimeEntityId: options.getLocalRuntimeEntityId
+      })
+      : createSessionMovementLoop({
+        client: options.client,
+        logger: options.resolvedOptions.logger,
+        movementGoal: options.resolvedOptions.movementGoal,
+        followPlayerName: undefined,
+        followCoordinates: undefined,
+        getFollowTargetPosition: () => null,
+        getPosition: options.getPosition,
+        setPosition: options.setPosition,
+        getTick: options.getTick,
+        getLocalRuntimeEntityId: options.getLocalRuntimeEntityId
+      });
   const initialTasks = getAvailableProgressionTasks(
     new Set(),
     new Set()

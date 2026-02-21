@@ -69,8 +69,10 @@ export const createCommandLineProgram = (
     .option("--skip-ping", "Skip initial ping before connecting")
     .option("--raknet-backend <backend>", "RakNet backend: native|node")
     .option("--discovery-timeout <ms>", "LAN discovery timeout in milliseconds")
-    .option("--goal <goal>", "Movement goal: safe-walk|follow-player")
+    .option("--goal <goal>", "Movement goal: safe-walk|follow-player|follow-coordinates")
     .option("--follow-player <name>", "Target player name for follow-player goal")
+    .option("--follow-coordinates <x y z>", "Target coordinates for follow-coordinates goal")
+    .option("--chunk-radius <chunks>", "Chunk radius soft cap in chunks")
     .option("--reconnect-retries <count>", "Reconnect retries after failed join attempts")
     .option("--reconnect-base-delay <ms>", "Reconnect backoff base delay in milliseconds")
     .option("--reconnect-max-delay <ms>", "Reconnect backoff max delay in milliseconds")
@@ -91,6 +93,8 @@ export const createCommandLineProgram = (
       discoveryTimeout?: string;
       goal?: string;
       followPlayer?: string;
+      followCoordinates?: string;
+      chunkRadius?: string;
       reconnectRetries?: string;
       reconnectBaseDelay?: string;
       reconnectMaxDelay?: string;
@@ -114,6 +118,8 @@ export const createCommandLineProgram = (
             discoveryTimeout: options.discoveryTimeout,
             goal: options.goal,
             followPlayer: options.followPlayer,
+            followCoordinates: options.followCoordinates,
+            chunkRadius: options.chunkRadius,
             reconnectRetries: options.reconnectRetries,
             reconnectBaseDelay: options.reconnectBaseDelay,
             reconnectMaxDelay: options.reconnectMaxDelay
@@ -141,6 +147,7 @@ export const createCommandLineProgram = (
     .option("--raknet-backend <backend>", "RakNet backend: native|node")
     .option("--discovery-timeout <ms>", "LAN discovery timeout in milliseconds")
     .option("--wait <ms>", "How long to wait for player list updates after login")
+    .option("--chunk-radius <chunks>", "Chunk radius soft cap in chunks")
     .option("--reconnect-retries <count>", "Reconnect retries after failed join attempts")
     .option("--reconnect-base-delay <ms>", "Reconnect backoff base delay in milliseconds")
     .option("--reconnect-max-delay <ms>", "Reconnect backoff max delay in milliseconds")
@@ -158,6 +165,7 @@ export const createCommandLineProgram = (
       raknetBackend?: string;
       discoveryTimeout?: string;
       wait?: string;
+      chunkRadius?: string;
       reconnectRetries?: string;
       reconnectBaseDelay?: string;
       reconnectMaxDelay?: string;
@@ -178,6 +186,7 @@ export const createCommandLineProgram = (
             raknetBackend: options.raknetBackend,
             discoveryTimeout: options.discoveryTimeout,
             wait: options.wait,
+            chunkRadius: options.chunkRadius,
             reconnectRetries: options.reconnectRetries,
             reconnectBaseDelay: options.reconnectBaseDelay,
             reconnectMaxDelay: options.reconnectMaxDelay

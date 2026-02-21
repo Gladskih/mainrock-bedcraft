@@ -1,30 +1,26 @@
-import { createClient } from "bedrock-protocol";
-import { DEFAULT_BOT_HEARTBEAT_INTERVAL_MS, DEFAULT_CHUNK_PROGRESS_LOG_INTERVAL, DEFAULT_JOIN_TIMEOUT_MS, DEFAULT_PLAYER_LIST_SETTLE_MS, DEFAULT_PLAYER_LIST_WAIT_MS, DEFAULT_REQUEST_CHUNK_RADIUS_DELAY_MS, DEFAULT_VIEW_DISTANCE_CHUNKS } from "../constants.js";
+import {
+  DEFAULT_BOT_HEARTBEAT_INTERVAL_MS,
+  DEFAULT_CHUNK_PROGRESS_LOG_INTERVAL,
+  DEFAULT_JOIN_TIMEOUT_MS,
+  DEFAULT_PLAYER_LIST_SETTLE_MS,
+  DEFAULT_PLAYER_LIST_WAIT_MS,
+  DEFAULT_REQUEST_CHUNK_RADIUS_DELAY_MS,
+  DEFAULT_VIEW_DISTANCE_CHUNKS
+} from "../constants.js";
 import { disconnectClient, isRecoverableReadError } from "./clientConnectionCleanup.js";
-import type { ClientLike } from "./clientTypes.js";
 import type { JoinOptions } from "./joinClient.js";
 import { getProfileName, isLevelChunkPacket, isStartGamePacket, isVector3, readPacketId, readOptionalStringField, readPacketEventName, toChunkKey, toError, type Vector3 } from "./joinClientHelpers.js";
-import { configurePostJoinPackets } from "./postJoinPackets.js";
-import { createNethernetClient } from "./nethernetClientFactory.js";
+import { createSessionClient } from "./sessionClientFactory.js";
 import { createPlayerTrackingState } from "./playerTrackingState.js";
 import { createPlayerListState } from "./playerListState.js";
 import { createPlayerListProbe } from "./playerListProbe.js";
-import { createRandomSenderId, toClientOptions } from "./sessionClientOptions.js";
+import { configurePostJoinPackets } from "./postJoinPackets.js";
+import { toChunkPublisherUpdateLogFields, toStartGameLogFields } from "./sessionWorldLogging.js";
 import { startSessionMovementLoopWithPlanner } from "./sessionMovementPlanner.js";
+import { toRuntimeHeartbeatLogFields } from "./sessionRuntimeHeartbeat.js";
 import { createWorldStateBridge } from "./worldStateBridge.js";
 export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> => new Promise((resolve, reject) => {
-    const resolvedClientFactory = resolvedOptions.transport === "nethernet"
-    ? () => {
-      if (!resolvedOptions.nethernetServerId) throw new Error("NetherNet join requires serverId from discovery");
-      return (resolvedOptions.nethernetClientFactory ?? createNethernetClient)(
-        toClientOptions({ ...resolvedOptions, skipPing: true }),
-        resolvedOptions.logger,
-        resolvedOptions.nethernetServerId,
-        resolvedOptions.nethernetClientId ?? createRandomSenderId()
-      );
-    }
-    : () => (resolvedOptions.clientFactory ?? createClient)(toClientOptions(resolvedOptions)) as ClientLike;
-    const client = resolvedClientFactory();
+    const client = createSessionClient(resolvedOptions);
     let firstChunk = false;
     let finished = false;
     let shutdownRequested = false;
@@ -34,6 +30,7 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
     let currentPosition: Vector3 | null = null;
     let movementLoop: { cleanup: () => void } | null = null;
     let runtimeHeartbeatId: ReturnType<typeof setInterval> | null = null;
+    let chunkPublisherUpdateLogged = false;
     const worldStateBridge = createWorldStateBridge();
     const setCurrentPosition = (position: Vector3): void => {
       currentPosition = position;
@@ -96,16 +93,15 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
       if (runtimeHeartbeatId) return;
       runtimeHeartbeatId = setInterval(() => {
         const botWorldSnapshot = worldStateBridge.getSnapshot();
-        resolvedOptions.logger.info(
-          {
-            event: "runtime_heartbeat",
-            chunkPackets: chunkPacketCount,
-            uniqueChunks: loadedChunks.size,
-            dimension: botWorldSnapshot.localPlayer.dimension,
-            position: botWorldSnapshot.localPlayer.position
-          },
-          "Bot runtime heartbeat"
-        );
+        resolvedOptions.logger.info(toRuntimeHeartbeatLogFields({
+          chunkPackets: chunkPacketCount,
+          uniqueChunks: loadedChunks.size,
+          dimension: botWorldSnapshot.localPlayer.dimension,
+          position: botWorldSnapshot.localPlayer.position,
+          simulatedPosition: currentPosition,
+          movementGoal: resolvedOptions.movementGoal,
+          followCoordinates: resolvedOptions.followCoordinates
+        }), "Bot runtime heartbeat");
       }, runtimeHeartbeatIntervalMs);
     };
     const handleUncaughtException = (error: Error) => { fail(toError(error)); disconnectClient(client); };
@@ -161,11 +157,9 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
             resolvedOptions,
             playerTrackingState,
             getPosition: () => currentPosition,
-            getTick: () => {
-              inputTick += 1n;
-              return inputTick;
-            },
-            setPosition: (position) => { currentPosition = position; }
+            getTick: () => { inputTick += 1n; return inputTick; },
+            setPosition: (position) => { currentPosition = position; },
+            getLocalRuntimeEntityId: () => worldStateBridge.getSnapshot().localPlayer.runtimeEntityId
           });
         };
     const handleChunkProgress = listPlayersOnly
@@ -184,7 +178,8 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
       event: "connect",
       host: resolvedOptions.host, port: resolvedOptions.port,
       serverName: resolvedOptions.serverName ?? null,
-      serverId: resolvedOptions.nethernetServerId?.toString() ?? null
+      serverId: resolvedOptions.nethernetServerId?.toString() ?? null,
+      chunkRadiusSoftCap: viewDistanceChunks
     }, "Connecting to server");
     resolvedOptions.onConnectionStateChange?.({ state: "connecting", reason: "connect_start" });
     client.on("packet", (packet) => {
@@ -218,18 +213,16 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
       const position = isVector3(packet.player_position) ? packet.player_position : null;
       worldStateBridge.setLocalFromStartGame(localRuntimeEntityId, packet.dimension ?? null, position);
       currentPosition = position;
-      resolvedOptions.logger.info(
-        {
-          event: "start_game",
-          playerName: getProfileName(client),
-          dimension: packet.dimension ?? null,
-          position,
-          runtimeEntityId: localRuntimeEntityId,
-          levelId: packet.level_id ?? null,
-          worldName: packet.world_name ?? null
-        },
-        "Received start game"
-      );
+      resolvedOptions.logger.info(toStartGameLogFields(resolvedOptions, client, packet, localRuntimeEntityId, position), "Received start game");
+    });
+    client.on("network_chunk_publisher_update", (packet) => {
+      const logPayload = toChunkPublisherUpdateLogFields(packet);
+      if (chunkPublisherUpdateLogged) {
+        resolvedOptions.logger.debug(logPayload, "Updated chunk publisher");
+        return;
+      }
+      chunkPublisherUpdateLogged = true;
+      resolvedOptions.logger.info(logPayload, "Received network chunk publisher update");
     });
     client.on("spawn", () => {
       const localPlayer = worldStateBridge.getSnapshot().localPlayer;

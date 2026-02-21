@@ -36,6 +36,20 @@ export const readOptionalStringField = (packet: unknown, fieldName: string): str
   return typeof value === "string" ? value : null;
 };
 
+export const readOptionalNumberField = (packet: unknown, fieldName: string): number | null => {
+  if (!packet || typeof packet !== "object") return null;
+  if (!(fieldName in packet)) return null;
+  const value = (packet as Record<string, unknown>)[fieldName];
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "bigint") {
+    if (value > BigInt(Number.MAX_SAFE_INTEGER) || value < BigInt(Number.MIN_SAFE_INTEGER)) return null;
+    return Number(value);
+  }
+  if (typeof value !== "string") return null;
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
 const INTEGER_STRING_PATTERN = /^-?\d+$/;
 
 export const readIntegerLikeId = (value: unknown): string | null => {

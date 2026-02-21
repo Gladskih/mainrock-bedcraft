@@ -4,6 +4,7 @@ import type { Logger } from "pino";
 import { RAKNET_BACKEND_NODE, type MovementGoal, type RaknetBackend } from "../constants.js";
 import type { AuthenticatedClientOptions } from "./authenticatedClientOptions.js";
 import type { ClientLike } from "./clientTypes.js";
+import type { Vector3 } from "./joinClientHelpers.js";
 import { createJoinPromise, lookupHostAddress } from "./joinClientSession.js";
 
 export { createNethernetClient, disableBedrockEncryptionForNethernet } from "./nethernetClientFactory.js";
@@ -29,6 +30,7 @@ export type JoinOptions = {
   transport: "raknet" | "nethernet";
   movementGoal: MovementGoal;
   followPlayerName: string | undefined;
+  followCoordinates: Vector3 | undefined;
   listPlayersOnly?: boolean;
   playerListWaitMs?: number;
   onPlayerListUpdate?: (players: string[]) => void;

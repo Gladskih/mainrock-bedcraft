@@ -35,6 +35,7 @@ const createRaknetJoinOptions = (client: FakeClient, overrides: Partial<JoinOpti
   transport: "raknet",
   movementGoal: MOVEMENT_GOAL_SAFE_WALK,
   followPlayerName: undefined,
+  followCoordinates: undefined,
   clientFactory: () => client,
   listPlayersOnly: true,
   ...overrides

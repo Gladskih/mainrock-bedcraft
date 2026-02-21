@@ -5,6 +5,7 @@ import {
   isLevelChunkPacket,
   isStartGamePacket,
   isVector3,
+  readOptionalNumberField,
   readOptionalStringField,
   readPacketEventName,
   toChunkKey,
@@ -28,6 +29,14 @@ void test("readOptionalStringField and readPacketEventName read packet names", (
   assert.equal(readOptionalStringField({ status: 1 }, "status"), null);
   assert.equal(readPacketEventName({ data: { name: "start_game" } }), "start_game");
   assert.equal(readPacketEventName({ data: { name: 1 } }), null);
+});
+
+void test("readOptionalNumberField reads numeric values safely", () => {
+  assert.equal(readOptionalNumberField({ radius: 12 }, "radius"), 12);
+  assert.equal(readOptionalNumberField({ radius: "12.5" }, "radius"), 12.5);
+  assert.equal(readOptionalNumberField({ radius: BigInt(12) }, "radius"), 12);
+  assert.equal(readOptionalNumberField({ radius: "x" }, "radius"), null);
+  assert.equal(readOptionalNumberField({ radius: BigInt(Number.MAX_SAFE_INTEGER) + BigInt(1) }, "radius"), null);
 });
 
 void test("getProfileName reads profile safely", () => {

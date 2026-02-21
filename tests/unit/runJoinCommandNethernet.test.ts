@@ -18,6 +18,7 @@ type JoinCall = {
   transport: string;
   movementGoal: string;
   followPlayerName: string | undefined;
+  followCoordinates: { x: number; y: number; z: number } | undefined;
   nethernetServerId?: bigint;
 };
 
@@ -44,6 +45,7 @@ const createBaseJoinOptions = (overrides: Partial<JoinCommandOptions> = {}): Joi
   raknetBackend: DEFAULT_RAKNET_BACKEND,
   movementGoal: MOVEMENT_GOAL_SAFE_WALK,
   followPlayerName: undefined,
+  followCoordinates: undefined,
   ...overrides
 });
 
@@ -64,6 +66,7 @@ const createDependencies = () => {
         transport: options.transport,
         movementGoal: options.movementGoal,
         followPlayerName: options.followPlayerName,
+        followCoordinates: options.followCoordinates,
         ...(options.nethernetServerId !== undefined ? { nethernetServerId: options.nethernetServerId } : {})
       };
     },
@@ -103,6 +106,7 @@ void test("runJoinCommand joins nethernet by host", async () => {
     transport: "nethernet",
     movementGoal: MOVEMENT_GOAL_SAFE_WALK,
     followPlayerName: undefined,
+    followCoordinates: undefined,
     nethernetServerId: 99n
   });
 });
@@ -119,6 +123,7 @@ void test("runJoinCommand joins nethernet by name", async () => {
     transport: "nethernet",
     movementGoal: MOVEMENT_GOAL_SAFE_WALK,
     followPlayerName: undefined,
+    followCoordinates: undefined,
     nethernetServerId: 42n
   });
 });

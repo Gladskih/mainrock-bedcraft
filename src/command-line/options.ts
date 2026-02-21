@@ -9,6 +9,7 @@ import {
   DEFAULT_RECONNECT_BASE_DELAY_MS,
   DEFAULT_RECONNECT_MAX_DELAY_MS,
   DEFAULT_RECONNECT_MAX_RETRIES,
+  MOVEMENT_GOAL_FOLLOW_COORDINATES,
   MOVEMENT_GOAL_FOLLOW_PLAYER,
   MOVEMENT_GOAL_SAFE_WALK,
   type MovementGoal,
@@ -16,6 +17,8 @@ import {
   RAKNET_BACKEND_NATIVE,
   type RaknetBackend
 } from "../constants.js";
+import type { Vector3 } from "../bedrock/joinClientHelpers.js";
+import { resolveDefaultChunkRadiusSoftCap } from "../util/hardwareProfile.js";
 import type { JoinCommandOptions } from "./runJoinCommand.js";
 import type { PlayersCommandOptions } from "./runPlayersCommand.js";
 import type { ScanCommandOptions } from "./runScanCommand.js";
@@ -43,6 +46,8 @@ export type JoinInput = {
   transport: string | undefined;
   goal: string | undefined;
   followPlayer: string | undefined;
+  followCoordinates: string | undefined;
+  chunkRadius: string | undefined;
   reconnectRetries: string | undefined;
   reconnectBaseDelay: string | undefined;
   reconnectMaxDelay: string | undefined;
@@ -62,6 +67,7 @@ export type PlayersInput = {
   discoveryTimeout: string | undefined;
   transport: string | undefined;
   wait: string | undefined;
+  chunkRadius: string | undefined;
   reconnectRetries: string | undefined;
   reconnectBaseDelay: string | undefined;
   reconnectMaxDelay: string | undefined;
@@ -109,7 +115,23 @@ const normalizeMovementGoal = (value: string | undefined): MovementGoal => {
   const normalized = value.toLowerCase();
   if (normalized === "safe-walk" || normalized === MOVEMENT_GOAL_SAFE_WALK) return MOVEMENT_GOAL_SAFE_WALK;
   if (normalized === "follow-player" || normalized === MOVEMENT_GOAL_FOLLOW_PLAYER) return MOVEMENT_GOAL_FOLLOW_PLAYER;
+  if (normalized === "follow-coordinates" || normalized === MOVEMENT_GOAL_FOLLOW_COORDINATES) {
+    return MOVEMENT_GOAL_FOLLOW_COORDINATES;
+  }
   throw new Error(`Invalid movement goal: ${value}`);
+};
+
+const parseFollowCoordinates = (value: string | undefined): Vector3 | undefined => {
+  if (!value) return undefined;
+  const normalizedValue = value.replaceAll("^", "").trim();
+  const coordinateParts = normalizedValue.split(/[\s,;]+/).filter((part) => part.length > 0);
+  if (coordinateParts.length !== 3) throw new Error(`Invalid follow coordinates: ${value}`);
+  const [xText, yText, zText] = coordinateParts as [string, string, string];
+  const x = Number.parseFloat(xText);
+  const y = Number.parseFloat(yText);
+  const z = Number.parseFloat(zText);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) throw new Error(`Invalid follow coordinates: ${value}`);
+  return { x, y, z };
 };
 
 export const resolveScanOptions = (input: ScanInput, env: EnvironmentVariables): ScanCommandOptions => ({
@@ -127,9 +149,20 @@ export const resolveJoinOptions = (input: JoinInput, env: EnvironmentVariables):
   const transport = requestedTransport ?? (port === DEFAULT_NETHERNET_PORT ? "nethernet" : "raknet");
   const movementGoal = normalizeMovementGoal(input.goal ?? env["BEDCRAFT_GOAL"]);
   const followPlayerName = input.followPlayer ?? env["BEDCRAFT_FOLLOW_PLAYER"];
-  if (movementGoal === MOVEMENT_GOAL_FOLLOW_PLAYER && !followPlayerName) throw new Error("Follow-player goal requires a target player name");
+  const followCoordinates = parseFollowCoordinates(input.followCoordinates ?? env["BEDCRAFT_FOLLOW_COORDINATES"]);
+  if (movementGoal === MOVEMENT_GOAL_FOLLOW_PLAYER && !followPlayerName) {
+    throw new Error("Follow-player goal requires a target player name");
+  }
+  if (movementGoal === MOVEMENT_GOAL_FOLLOW_COORDINATES && !followCoordinates) {
+    throw new Error("Follow-coordinates goal requires target coordinates");
+  }
   const reconnectBaseDelayMs = parseNumber(input.reconnectBaseDelay ?? env["BEDCRAFT_RECONNECT_BASE_DELAY_MS"], DEFAULT_RECONNECT_BASE_DELAY_MS, "reconnect base delay");
   const reconnectMaxDelayMs = parseNumber(input.reconnectMaxDelay ?? env["BEDCRAFT_RECONNECT_MAX_DELAY_MS"], DEFAULT_RECONNECT_MAX_DELAY_MS, "reconnect max delay");
+  const viewDistanceChunks = parseNumber(
+    input.chunkRadius ?? env["BEDCRAFT_CHUNK_RADIUS"],
+    resolveDefaultChunkRadiusSoftCap(),
+    "chunk radius"
+  );
   if (reconnectMaxDelayMs < reconnectBaseDelayMs) throw new Error("Reconnect max delay must be greater than or equal to reconnect base delay");
   return {
     accountName,
@@ -149,6 +182,8 @@ export const resolveJoinOptions = (input: JoinInput, env: EnvironmentVariables):
     transport,
     movementGoal,
     followPlayerName,
+    followCoordinates,
+    viewDistanceChunks,
     reconnectMaxRetries: parseNonNegativeNumber(input.reconnectRetries ?? env["BEDCRAFT_RECONNECT_MAX_RETRIES"], DEFAULT_RECONNECT_MAX_RETRIES, "reconnect retries"),
     reconnectBaseDelayMs,
     reconnectMaxDelayMs
@@ -174,6 +209,8 @@ export const resolvePlayersOptions = (input: PlayersInput, env: EnvironmentVaria
       transport: input.transport,
       goal: MOVEMENT_GOAL_SAFE_WALK,
       followPlayer: undefined,
+      followCoordinates: undefined,
+      chunkRadius: input.chunkRadius,
       reconnectRetries: input.reconnectRetries,
       reconnectBaseDelay: input.reconnectBaseDelay,
       reconnectMaxDelay: input.reconnectMaxDelay
@@ -194,6 +231,9 @@ export const resolvePlayersOptions = (input: PlayersInput, env: EnvironmentVaria
     forceRefresh: joinOptions.forceRefresh,
     skipPing: joinOptions.skipPing,
     raknetBackend: joinOptions.raknetBackend,
+    ...(joinOptions.viewDistanceChunks !== undefined
+      ? { viewDistanceChunks: joinOptions.viewDistanceChunks }
+      : {}),
     waitMs: parseNumber(
       input.wait ?? env["BEDCRAFT_PLAYERS_WAIT_MS"],
       DEFAULT_PLAYER_LIST_WAIT_MS,

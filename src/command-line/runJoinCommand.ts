@@ -8,6 +8,7 @@ import {
   type MovementGoal,
   type RaknetBackend
 } from "../constants.js";
+import type { Vector3 } from "../bedrock/joinClientHelpers.js";
 import { createAuthFlow } from "../authentication/authFlow.js";
 import { resolveCachePaths } from "../authentication/cachePaths.js";
 import { discoverLanServers } from "../bedrock/lanDiscovery.js";
@@ -35,6 +36,8 @@ export type JoinCommandOptions = {
   skipPing: boolean;
   movementGoal: MovementGoal;
   followPlayerName: string | undefined;
+  followCoordinates: Vector3 | undefined;
+  viewDistanceChunks?: number;
   reconnectMaxRetries?: number;
   reconnectBaseDelayMs?: number;
   reconnectMaxDelayMs?: number;
@@ -117,6 +120,8 @@ export const runJoinCommand = async (
         joinTimeoutMs: options.joinTimeoutMs,
         movementGoal: options.movementGoal,
         followPlayerName: options.followPlayerName,
+        followCoordinates: options.followCoordinates,
+        ...(options.viewDistanceChunks !== undefined ? { viewDistanceChunks: options.viewDistanceChunks } : {}),
         ...(options.listPlayersOnly !== undefined ? { listPlayersOnly: options.listPlayersOnly } : {}),
         ...(options.playerListWaitMs !== undefined ? { playerListWaitMs: options.playerListWaitMs } : {}),
         ...(options.onPlayerListUpdate !== undefined ? { onPlayerListUpdate: options.onPlayerListUpdate } : {}),
