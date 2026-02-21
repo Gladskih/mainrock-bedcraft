@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- GitHub Actions CI workflow for `lint`, `typecheck`, and unit test validation on `push`/`pull_request`.
+
 ## [0.2.0] - 2026-02-21
 
 ### Added
