@@ -31,7 +31,10 @@ const emptyJoinInput = {
   raknetBackend: undefined,
   discoveryTimeout: undefined,
   goal: undefined,
-  followPlayer: undefined
+  followPlayer: undefined,
+  reconnectRetries: undefined,
+  reconnectBaseDelay: undefined,
+  reconnectMaxDelay: undefined
 };
 
 void test("resolveScanOptions uses defaults", () => {
@@ -154,6 +157,39 @@ void test("resolveJoinOptions rejects invalid movement goal", () => {
   ));
 });
 
+void test("resolveJoinOptions reads reconnect settings from environment", () => {
+  const options = resolveJoinOptions(
+    { ...emptyJoinInput, account: "user" },
+    {
+      BEDCRAFT_RECONNECT_MAX_RETRIES: "4",
+      BEDCRAFT_RECONNECT_BASE_DELAY_MS: "200",
+      BEDCRAFT_RECONNECT_MAX_DELAY_MS: "1000"
+    }
+  );
+  assert.equal(options.reconnectMaxRetries, 4);
+  assert.equal(options.reconnectBaseDelayMs, 200);
+  assert.equal(options.reconnectMaxDelayMs, 1000);
+});
+
+void test("resolveJoinOptions rejects negative reconnect retries", () => {
+  assert.throws(() => resolveJoinOptions(
+    { ...emptyJoinInput, account: "user", reconnectRetries: "-1" },
+    {}
+  ));
+});
+
+void test("resolveJoinOptions rejects reconnect max delay lower than base delay", () => {
+  assert.throws(() => resolveJoinOptions(
+    {
+      ...emptyJoinInput,
+      account: "user",
+      reconnectBaseDelay: "1000",
+      reconnectMaxDelay: "500"
+    },
+    {}
+  ));
+});
+
 void test("resolveScanOptions rejects invalid transport", () => {
   assert.throws(() => resolveScanOptions({ ...emptyScanInput, transport: "invalid" }, emptyEnv));
 });
@@ -172,7 +208,10 @@ void test("resolvePlayersOptions uses defaults", () => {
     raknetBackend: undefined,
     discoveryTimeout: undefined,
     transport: undefined,
-    wait: undefined
+    wait: undefined,
+    reconnectRetries: undefined,
+    reconnectBaseDelay: undefined,
+    reconnectMaxDelay: undefined
   }, emptyEnv);
   assert.equal(options.waitMs, DEFAULT_PLAYER_LIST_WAIT_MS);
   assert.equal(options.transport, "nethernet");
@@ -192,7 +231,10 @@ void test("resolvePlayersOptions reads wait timeout from environment", () => {
     raknetBackend: undefined,
     discoveryTimeout: undefined,
     transport: undefined,
-    wait: undefined
+    wait: undefined,
+    reconnectRetries: undefined,
+    reconnectBaseDelay: undefined,
+    reconnectMaxDelay: undefined
   }, { BEDCRAFT_PLAYERS_WAIT_MS: "9000" });
   assert.equal(options.waitMs, 9000);
 });
@@ -211,6 +253,9 @@ void test("resolvePlayersOptions rejects invalid wait timeout", () => {
     raknetBackend: undefined,
     discoveryTimeout: undefined,
     transport: undefined,
-    wait: "bad"
+    wait: "bad",
+    reconnectRetries: undefined,
+    reconnectBaseDelay: undefined,
+    reconnectMaxDelay: undefined
   }, emptyEnv));
 });

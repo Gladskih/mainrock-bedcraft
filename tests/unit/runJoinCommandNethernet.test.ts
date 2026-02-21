@@ -65,7 +65,9 @@ const createDependencies = () => {
         followPlayerName: options.followPlayerName,
         ...(options.nethernetServerId !== undefined ? { nethernetServerId: options.nethernetServerId } : {})
       };
-    }
+    },
+    sleep: async () => undefined,
+    random: () => 0
   };
   return { calls, dependencies };
 };

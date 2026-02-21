@@ -24,7 +24,8 @@ type JoinCall = {
 };
 
 const createLogger = (): Logger => ({
-  info: () => undefined
+  info: () => undefined,
+  warn: () => undefined
 } as unknown as Logger);
 
 const createBaseJoinOptions = (overrides: Partial<JoinCommandOptions> = {}): JoinCommandOptions => ({
@@ -68,7 +69,9 @@ const createDependencies = () => {
         ...(options.nethernetServerId !== undefined ? { nethernetServerId: options.nethernetServerId } : {}),
         ...(options.minecraftVersion !== undefined ? { minecraftVersion: options.minecraftVersion } : {})
       };
-    }
+    },
+    sleep: async () => undefined,
+    random: () => 0
   };
   return { calls, dependencies };
 };
@@ -192,4 +195,47 @@ void test("runJoinCommand passes follow-player goal", async () => {
   );
   assert.equal(calls.join?.movementGoal, MOVEMENT_GOAL_FOLLOW_PLAYER);
   assert.equal(calls.join?.followPlayerName, "TargetPlayer");
+});
+
+void test("runJoinCommand retries after failed join and then succeeds", async () => {
+  const { dependencies } = createDependencies();
+  let attempts = 0;
+  const delays: number[] = [];
+  dependencies.joinBedrockServer = async () => {
+    attempts += 1;
+    if (attempts === 1) throw new Error("temporary");
+  };
+  dependencies.sleep = async (delayMs) => {
+    delays.push(delayMs);
+  };
+  await runJoinCommand(
+    createBaseJoinOptions({
+      reconnectMaxRetries: 1,
+      reconnectBaseDelayMs: 10,
+      reconnectMaxDelayMs: 10
+    }),
+    createLogger(),
+    dependencies
+  );
+  assert.equal(attempts, 2);
+  assert.deepEqual(delays, [10]);
+});
+
+void test("runJoinCommand throws after reconnect retries are exhausted", async () => {
+  const { dependencies } = createDependencies();
+  let attempts = 0;
+  dependencies.joinBedrockServer = async () => {
+    attempts += 1;
+    throw new Error("still-failing");
+  };
+  await assert.rejects(() => runJoinCommand(
+    createBaseJoinOptions({
+      reconnectMaxRetries: 1,
+      reconnectBaseDelayMs: 5,
+      reconnectMaxDelayMs: 5
+    }),
+    createLogger(),
+    dependencies
+  ));
+  assert.equal(attempts, 2);
 });

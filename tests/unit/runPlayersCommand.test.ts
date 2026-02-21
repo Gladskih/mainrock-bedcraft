@@ -24,7 +24,9 @@ const createDependencies = (onUpdate?: (players: string[]) => void): JoinDepende
   joinBedrockServer: async (options) => {
     onUpdate?.(["TargetPlayer", "SrgGld"]);
     options.onPlayerListUpdate?.(["TargetPlayer", "SrgGld"]);
-  }
+  },
+  sleep: async () => undefined,
+  random: () => 0
 });
 
 void test("runPlayersCommand logs players list", async () => {

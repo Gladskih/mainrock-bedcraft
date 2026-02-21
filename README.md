@@ -73,6 +73,12 @@ Follow a specific player once visible to the bot:
 npm run join -- --name "My Server" --account "my-account" --goal follow-player --follow-player "TargetPlayer"
 ```
 
+Enable capped reconnect retries with jittered exponential backoff:
+
+```bash
+npm run join -- --name "My Server" --account "my-account" --reconnect-retries 3 --reconnect-base-delay 1000 --reconnect-max-delay 8000
+```
+
 Probe current online player names (join briefly, collect `player_list`, then disconnect):
 
 ```bash
@@ -113,6 +119,9 @@ npm run build
 - `BEDCRAFT_GOAL`: `safe-walk|follow-player` (defaults to `safe-walk`).
 - `BEDCRAFT_FOLLOW_PLAYER`: Target player name for `follow-player` goal.
 - `BEDCRAFT_PLAYERS_WAIT_MS`: Probe window for `players` command after login.
+- `BEDCRAFT_RECONNECT_MAX_RETRIES`: Maximum reconnect retries after a failed join attempt.
+- `BEDCRAFT_RECONNECT_BASE_DELAY_MS`: Base reconnect delay in milliseconds.
+- `BEDCRAFT_RECONNECT_MAX_DELAY_MS`: Maximum reconnect delay cap in milliseconds.
 
 ## Authentication and Cache
 

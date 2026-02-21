@@ -1,9 +1,18 @@
 import type { Logger } from "pino";
-import { APPLICATION_ID, type MovementGoal, type RaknetBackend } from "../constants.js";
+import {
+  APPLICATION_ID,
+  DEFAULT_RECONNECT_BASE_DELAY_MS,
+  DEFAULT_RECONNECT_JITTER_RATIO,
+  DEFAULT_RECONNECT_MAX_DELAY_MS,
+  DEFAULT_RECONNECT_MAX_RETRIES,
+  type MovementGoal,
+  type RaknetBackend
+} from "../constants.js";
 import { createAuthFlow } from "../authentication/authFlow.js";
 import { resolveCachePaths } from "../authentication/cachePaths.js";
 import { discoverLanServers } from "../bedrock/lanDiscovery.js";
 import { joinBedrockServer } from "../bedrock/joinClient.js";
+import { calculateReconnectDelayMs } from "../bedrock/reconnectPolicy.js";
 import { normalizeServerName, selectServerByName } from "../bedrock/serverSelection.js";
 import { discoverNethernetLanServers } from "../nethernet/lanDiscovery.js";
 
@@ -25,6 +34,9 @@ export type JoinCommandOptions = {
   skipPing: boolean;
   movementGoal: MovementGoal;
   followPlayerName: string | undefined;
+  reconnectMaxRetries?: number;
+  reconnectBaseDelayMs?: number;
+  reconnectMaxDelayMs?: number;
   listPlayersOnly?: boolean;
   playerListWaitMs?: number;
   onPlayerListUpdate?: (players: string[]) => void;
@@ -37,6 +49,8 @@ export type JoinDependencies = {
   selectServerByName: typeof selectServerByName;
   createAuthFlow: typeof createAuthFlow;
   joinBedrockServer: typeof joinBedrockServer;
+  sleep: (timeoutMs: number) => Promise<void>;
+  random: () => number;
 };
 
 const defaultJoinDependencies: JoinDependencies = {
@@ -45,7 +59,9 @@ const defaultJoinDependencies: JoinDependencies = {
   discoverNethernetLanServers,
   selectServerByName,
   createAuthFlow,
-  joinBedrockServer
+  joinBedrockServer,
+  sleep: (timeoutMs) => new Promise((resolve) => setTimeout(resolve, timeoutMs)),
+  random: () => Math.random()
 };
 
 export const runJoinCommand = async (
@@ -57,9 +73,6 @@ export const runJoinCommand = async (
   const cacheDirectory = options.cacheDirectory ?? cachePaths.cacheDirectory;
   const keyFilePath = options.keyFilePath ?? cachePaths.keyFilePath;
   if (!options.host && !options.serverName) throw new Error("Either host or server name must be provided");
-  const target = options.transport === "nethernet"
-    ? await resolveNethernetTarget(options, logger, dependencies)
-    : await resolveRaknetTarget(options, logger, dependencies);
   const authFlowResult = dependencies.createAuthFlow({
     accountName: options.accountName,
     cacheDirectory,
@@ -77,26 +90,57 @@ export const runJoinCommand = async (
     }
   });
   logger.info({ event: "auth_cache", cacheDirectory, keySource: authFlowResult.keySource }, "Authentication cache ready");
-  await dependencies.joinBedrockServer({
-    host: target.host,
-    port: target.port,
-    accountName: options.accountName,
-    authflow: authFlowResult.authflow,
-    logger,
-    serverName: target.serverName,
-    disconnectAfterFirstChunk: options.disconnectAfterFirstChunk,
-    skipPing: options.transport === "nethernet" ? true : options.skipPing,
-    raknetBackend: options.raknetBackend,
-    transport: options.transport,
-    joinTimeoutMs: options.joinTimeoutMs,
-    movementGoal: options.movementGoal,
-    followPlayerName: options.followPlayerName,
-    ...(options.listPlayersOnly !== undefined ? { listPlayersOnly: options.listPlayersOnly } : {}),
-    ...(options.playerListWaitMs !== undefined ? { playerListWaitMs: options.playerListWaitMs } : {}),
-    ...(options.onPlayerListUpdate !== undefined ? { onPlayerListUpdate: options.onPlayerListUpdate } : {}),
-    ...(options.minecraftVersion !== undefined ? { minecraftVersion: options.minecraftVersion } : {}),
-    ...(target.nethernetServerId !== undefined ? { nethernetServerId: target.nethernetServerId } : {})
-  });
+  const reconnectMaxRetries = options.reconnectMaxRetries ?? DEFAULT_RECONNECT_MAX_RETRIES;
+  const reconnectBaseDelayMs = options.reconnectBaseDelayMs ?? DEFAULT_RECONNECT_BASE_DELAY_MS;
+  const reconnectMaxDelayMs = options.reconnectMaxDelayMs ?? DEFAULT_RECONNECT_MAX_DELAY_MS;
+  for (let attempt = 0; ; attempt += 1) {
+    const target = options.transport === "nethernet"
+      ? await resolveNethernetTarget(options, logger, dependencies)
+      : await resolveRaknetTarget(options, logger, dependencies);
+    try {
+      await dependencies.joinBedrockServer({
+        host: target.host,
+        port: target.port,
+        accountName: options.accountName,
+        authflow: authFlowResult.authflow,
+        logger,
+        serverName: target.serverName,
+        disconnectAfterFirstChunk: options.disconnectAfterFirstChunk,
+        skipPing: options.transport === "nethernet" ? true : options.skipPing,
+        raknetBackend: options.raknetBackend,
+        transport: options.transport,
+        joinTimeoutMs: options.joinTimeoutMs,
+        movementGoal: options.movementGoal,
+        followPlayerName: options.followPlayerName,
+        ...(options.listPlayersOnly !== undefined ? { listPlayersOnly: options.listPlayersOnly } : {}),
+        ...(options.playerListWaitMs !== undefined ? { playerListWaitMs: options.playerListWaitMs } : {}),
+        ...(options.onPlayerListUpdate !== undefined ? { onPlayerListUpdate: options.onPlayerListUpdate } : {}),
+        ...(options.minecraftVersion !== undefined ? { minecraftVersion: options.minecraftVersion } : {}),
+        ...(target.nethernetServerId !== undefined ? { nethernetServerId: target.nethernetServerId } : {})
+      });
+      return;
+    } catch (error) {
+      if (attempt >= reconnectMaxRetries) throw error;
+      const delayMs = calculateReconnectDelayMs({
+        attempt,
+        baseDelayMs: reconnectBaseDelayMs,
+        maxDelayMs: reconnectMaxDelayMs,
+        jitterRatio: DEFAULT_RECONNECT_JITTER_RATIO,
+        random: dependencies.random
+      });
+      logger.warn(
+        {
+          event: "reconnect_retry",
+          attempt: attempt + 1,
+          maxRetries: reconnectMaxRetries,
+          delayMs,
+          error: error instanceof Error ? error.message : String(error)
+        },
+        "Join failed, retrying"
+      );
+      await dependencies.sleep(delayMs);
+    }
+  }
 };
 
 type ResolvedTarget = {

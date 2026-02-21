@@ -7,6 +7,7 @@ All notable changes to this project are documented in this file.
 ### Added
 
 - New `players` CLI command to join briefly, collect online player names from `player_list`/`add_player`, and disconnect automatically after a configurable wait window.
+- Reconnect policy for `join` with capped retries, exponential backoff, and jitter (`--reconnect-retries`, `--reconnect-base-delay`, `--reconnect-max-delay`).
 
 ### Changed
 

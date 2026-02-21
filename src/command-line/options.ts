@@ -6,6 +6,9 @@ import {
   DEFAULT_NETHERNET_PORT,
   DEFAULT_PLAYER_LIST_WAIT_MS,
   DEFAULT_RAKNET_BACKEND,
+  DEFAULT_RECONNECT_BASE_DELAY_MS,
+  DEFAULT_RECONNECT_MAX_DELAY_MS,
+  DEFAULT_RECONNECT_MAX_RETRIES,
   MOVEMENT_GOAL_FOLLOW_PLAYER,
   MOVEMENT_GOAL_SAFE_WALK,
   type MovementGoal,
@@ -40,6 +43,9 @@ export type JoinInput = {
   transport: string | undefined;
   goal: string | undefined;
   followPlayer: string | undefined;
+  reconnectRetries: string | undefined;
+  reconnectBaseDelay: string | undefined;
+  reconnectMaxDelay: string | undefined;
 };
 
 export type PlayersInput = {
@@ -56,6 +62,9 @@ export type PlayersInput = {
   discoveryTimeout: string | undefined;
   transport: string | undefined;
   wait: string | undefined;
+  reconnectRetries: string | undefined;
+  reconnectBaseDelay: string | undefined;
+  reconnectMaxDelay: string | undefined;
 };
 
 export type EnvironmentVariables = Record<string, string | undefined>;
@@ -69,6 +78,13 @@ const parseNumber = (value: string | undefined, fallback: number, label: string)
   if (!value) return fallback;
   const parsed = Number.parseInt(value, 10);
   if (Number.isNaN(parsed) || parsed <= 0) throw new Error(`Invalid ${label}: ${value}`);
+  return parsed;
+};
+
+const parseNonNegativeNumber = (value: string | undefined, fallback: number, label: string): number => {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed) || parsed < 0) throw new Error(`Invalid ${label}: ${value}`);
   return parsed;
 };
 
@@ -112,6 +128,9 @@ export const resolveJoinOptions = (input: JoinInput, env: EnvironmentVariables):
   const movementGoal = normalizeMovementGoal(input.goal ?? env["BEDCRAFT_GOAL"]);
   const followPlayerName = input.followPlayer ?? env["BEDCRAFT_FOLLOW_PLAYER"];
   if (movementGoal === MOVEMENT_GOAL_FOLLOW_PLAYER && !followPlayerName) throw new Error("Follow-player goal requires a target player name");
+  const reconnectBaseDelayMs = parseNumber(input.reconnectBaseDelay ?? env["BEDCRAFT_RECONNECT_BASE_DELAY_MS"], DEFAULT_RECONNECT_BASE_DELAY_MS, "reconnect base delay");
+  const reconnectMaxDelayMs = parseNumber(input.reconnectMaxDelay ?? env["BEDCRAFT_RECONNECT_MAX_DELAY_MS"], DEFAULT_RECONNECT_MAX_DELAY_MS, "reconnect max delay");
+  if (reconnectMaxDelayMs < reconnectBaseDelayMs) throw new Error("Reconnect max delay must be greater than or equal to reconnect base delay");
   return {
     accountName,
     host: input.host ?? env["BEDCRAFT_HOST"],
@@ -129,7 +148,10 @@ export const resolveJoinOptions = (input: JoinInput, env: EnvironmentVariables):
     raknetBackend: normalizeRaknetBackend(input.raknetBackend ?? env["BEDCRAFT_RAKNET_BACKEND"]),
     transport,
     movementGoal,
-    followPlayerName
+    followPlayerName,
+    reconnectMaxRetries: parseNonNegativeNumber(input.reconnectRetries ?? env["BEDCRAFT_RECONNECT_MAX_RETRIES"], DEFAULT_RECONNECT_MAX_RETRIES, "reconnect retries"),
+    reconnectBaseDelayMs,
+    reconnectMaxDelayMs
   };
 };
 
@@ -151,7 +173,10 @@ export const resolvePlayersOptions = (input: PlayersInput, env: EnvironmentVaria
       discoveryTimeout: input.discoveryTimeout,
       transport: input.transport,
       goal: MOVEMENT_GOAL_SAFE_WALK,
-      followPlayer: undefined
+      followPlayer: undefined,
+      reconnectRetries: input.reconnectRetries,
+      reconnectBaseDelay: input.reconnectBaseDelay,
+      reconnectMaxDelay: input.reconnectMaxDelay
     },
     env
   );
@@ -169,6 +194,19 @@ export const resolvePlayersOptions = (input: PlayersInput, env: EnvironmentVaria
     forceRefresh: joinOptions.forceRefresh,
     skipPing: joinOptions.skipPing,
     raknetBackend: joinOptions.raknetBackend,
-    waitMs: parseNumber(input.wait ?? env["BEDCRAFT_PLAYERS_WAIT_MS"], DEFAULT_PLAYER_LIST_WAIT_MS, "player list wait timeout")
+    waitMs: parseNumber(
+      input.wait ?? env["BEDCRAFT_PLAYERS_WAIT_MS"],
+      DEFAULT_PLAYER_LIST_WAIT_MS,
+      "player list wait timeout"
+    ),
+    ...(joinOptions.reconnectMaxRetries !== undefined
+      ? { reconnectMaxRetries: joinOptions.reconnectMaxRetries }
+      : {}),
+    ...(joinOptions.reconnectBaseDelayMs !== undefined
+      ? { reconnectBaseDelayMs: joinOptions.reconnectBaseDelayMs }
+      : {}),
+    ...(joinOptions.reconnectMaxDelayMs !== undefined
+      ? { reconnectMaxDelayMs: joinOptions.reconnectMaxDelayMs }
+      : {})
   };
 };
