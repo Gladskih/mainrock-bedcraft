@@ -9,6 +9,7 @@ All notable changes to this project are documented in this file.
 - New `players` CLI command to join briefly, collect online player names from `player_list`/`add_player`, and disconnect automatically after a configurable wait window.
 - Reconnect policy for `join` with capped retries, exponential backoff, and jitter (`--reconnect-retries`, `--reconnect-base-delay`, `--reconnect-max-delay`).
 - Explicit join runtime state machine with validated transitions (`offline`, `auth_ready`, `discovering`, `connecting`, `online`, `retry_waiting`, `failed`).
+- New immutable `BotWorldState` module (`src/bot/worldState.ts`) to persist local player/entity snapshots for future pathfinding and resource logic.
 
 ### Changed
 
