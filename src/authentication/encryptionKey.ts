@@ -1,23 +1,28 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
 import { AES_GCM_KEY_LENGTH_BYTES } from "../constants.js";
+import { createDefaultEncryptionKeyStorage, type EncryptionKeyStorage, type EncryptionKeyStorageSource } from "./encryptionKeyStorage.js";
 import { normalizeEncryptionKey } from "./encryptedCache.js";
+
+export type EncryptionKeySource = "environment" | EncryptionKeyStorageSource | "generated";
 
 export type EncryptionKeyResult = {
   key: Buffer;
-  source: "environment" | "file" | "generated";
+  source: EncryptionKeySource;
 };
 
-const ensureDirectory = (path: string): void => {
-  if (!existsSync(path)) mkdirSync(path, { recursive: true });
-};
-
-export const loadEncryptionKey = (keyFilePath: string, environmentKey: string | undefined): EncryptionKeyResult => {
+export const loadEncryptionKey = (
+  keyFilePath: string,
+  environmentKey: string | undefined,
+  keyStorage: EncryptionKeyStorage = createDefaultEncryptionKeyStorage()
+): EncryptionKeyResult => {
   if (environmentKey && environmentKey.trim()) return { key: normalizeEncryptionKey(Buffer.from(environmentKey.trim(), "utf8")), source: "environment" };
-  if (existsSync(keyFilePath)) return { key: normalizeEncryptionKey(readFileSync(keyFilePath)), source: "file" };
-  ensureDirectory(dirname(keyFilePath));
+  try {
+    const existingKey = keyStorage.readKey(keyFilePath);
+    if (existingKey) return { key: normalizeEncryptionKey(existingKey), source: keyStorage.source };
+  } catch {
+    // Corrupted or incompatible key blobs are rotated to keep startup non-interactive.
+  }
   const generated = randomBytes(AES_GCM_KEY_LENGTH_BYTES);
-  writeFileSync(keyFilePath, generated, { mode: 0o600 });
+  keyStorage.writeKey(keyFilePath, generated);
   return { key: normalizeEncryptionKey(generated), source: "generated" };
 };

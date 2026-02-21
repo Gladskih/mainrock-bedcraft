@@ -1,7 +1,7 @@
 import prismarineAuth from "prismarine-auth";
 import type { Authflow, ServerDeviceCodeResponse } from "prismarine-auth";
 import { createEncryptedCacheFactory } from "./encryptedCache.js";
-import { loadEncryptionKey } from "./encryptionKey.js";
+import { loadEncryptionKey, type EncryptionKeySource } from "./encryptionKey.js";
 
 export type AuthFlowOptions = {
   accountName: string;
@@ -14,7 +14,7 @@ export type AuthFlowOptions = {
 
 export type AuthFlowResult = {
   authflow: Authflow;
-  keySource: "environment" | "file" | "generated";
+  keySource: EncryptionKeySource;
 };
 
 type PrismarineAuthModule = {
