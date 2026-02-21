@@ -4,12 +4,19 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-02-21
+
 ### Added
 
 - New `players` CLI command to join briefly, collect online player names from `player_list`/`add_player`, and disconnect automatically after a configurable wait window.
 - Reconnect policy for `join` with capped retries, exponential backoff, and jitter (`--reconnect-retries`, `--reconnect-base-delay`, `--reconnect-max-delay`).
 - Explicit join runtime state machine with validated transitions (`offline`, `auth_ready`, `discovering`, `connecting`, `online`, `retry_waiting`, `failed`).
 - New immutable `BotWorldState` module (`src/bot/worldState.ts`) to persist local player/entity snapshots for future pathfinding and resource logic.
+- New reactive movement safety module (`src/bot/movementSafety.ts`) with emergency recovery on dangerous descent and local low-air/health signals.
+- Follow-target fallback resolver that temporarily tracks the single remote player when explicit nickname match is unavailable.
+- New `follow-coordinates` movement goal with CLI/env parsing (`--goal follow-coordinates`, `--follow-coordinates`, `BEDCRAFT_FOLLOW_COORDINATES`).
+- Movement safety panic circuit-breaker that pauses pursuit after repeated clustered danger strikes.
+- Adaptive chunk radius soft-cap defaults based on local memory profile plus CLI/env overrides (`--chunk-radius`, `BEDCRAFT_CHUNK_RADIUS`).
 
 ### Changed
 
@@ -17,6 +24,10 @@ All notable changes to this project are documented in this file.
 - Logger output now omits level fields entirely (`level`/`severity`) and keeps only payload + `time` + `msg`.
 - Local bot pose is now persisted in `BotWorldState` from authoritative `start_game`/`move_player` packets and exposed in runtime heartbeat logs.
 - Nearby entity lifecycle is now persisted in `BotWorldState` from runtime packet flow (`add_player`, `add_entity`, movement, and `remove_entity`).
+- Join/post-join logs now include explicit server/world session parameters and chunk publisher/radius negotiation details.
+- Chunk radius negotiation now probes server max first, then applies local soft cap automatically on weak hardware.
+- Runtime heartbeat now includes local simulated movement position and follow distance progress in follow-coordinates mode.
+- `--follow-coordinates` parser now accepts Windows npm caret-escaped argument form (`^-2962^ 65^ -2100^`) in addition to normal separators.
 
 ## [0.3.0] - 2026-02-21
 
