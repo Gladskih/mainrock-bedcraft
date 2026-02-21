@@ -16,14 +16,17 @@
     "build": "tsc",
     "test": "npm run build && npm run test:unit",
     "test:unit": "tsx --test tests/unit/**/*.ts",
+    "test:module": "node --import tsx --test",
+    "test:quick": "npm run test:module -- tests/unit/joinClient.test.ts",
     "test:coverage": "c8 --config .c8rc.json tsx --test tests/unit/**/*.ts",
     "scan": "npm run build --silent && node dist/cli.js scan",
     "join": "npm run build --silent && node dist/cli.js join"
   },
   "dependencies": {
-    "bedrock-protocol": "^3.52.0",
+    "bedrock-protocol": "^3.53.0",
     "commander": "^14.0.2",
     "env-paths": "^3.0.0",
+    "minecraft-data": "^3.105.0",
     "node-datachannel": "^0.32.0",
     "pino": "^10.2.0",
     "prismarine-auth": "^2.7.0"

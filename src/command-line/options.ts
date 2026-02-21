@@ -5,7 +5,6 @@ import {
   DEFAULT_NETHERNET_PORT,
   DEFAULT_RAKNET_BACKEND,
   RAKNET_BACKEND_NODE,
-  RAKNET_BACKEND_JS,
   RAKNET_BACKEND_NATIVE,
   type RaknetBackend
 } from "../constants.js";
@@ -53,7 +52,6 @@ const normalizeRaknetBackend = (value: string | undefined): RaknetBackend => {
   const normalized = value.toLowerCase();
   if (normalized === "native" || normalized === RAKNET_BACKEND_NATIVE) return RAKNET_BACKEND_NATIVE;
   if (normalized === "node" || normalized === RAKNET_BACKEND_NODE) return RAKNET_BACKEND_NODE;
-  if (normalized === "js" || normalized === RAKNET_BACKEND_JS) return RAKNET_BACKEND_JS;
   throw new Error(`Invalid RakNet backend: ${value}`);
 };
 

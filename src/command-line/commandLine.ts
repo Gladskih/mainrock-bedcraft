@@ -55,12 +55,12 @@ export const createCommandLineProgram = (
     .option("--transport <transport>", "Transport: nethernet|raknet")
     .option("--account <account>", "Account identifier for token cache")
     .option("--cache-dir <path>", "Override cache directory path")
-    .option("--key-file <path>", "Override encrypted cache key file path")
+    .option("--key-file <path>", "Override protected cache key blob file path")
     .option("--minecraft-version <version>", "Minecraft protocol version (e.g. 1.21.93)")
     .option("--join-timeout <ms>", "Join timeout in milliseconds")
     .option("--force-refresh", "Force refresh cached tokens")
     .option("--skip-ping", "Skip initial ping before connecting")
-    .option("--raknet-backend <backend>", "RakNet backend: native|js|node")
+    .option("--raknet-backend <backend>", "RakNet backend: native|node")
     .option("--discovery-timeout <ms>", "LAN discovery timeout in milliseconds")
     .action(async (options: {
       host?: string;

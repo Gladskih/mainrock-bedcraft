@@ -78,6 +78,13 @@ void test("resolveJoinOptions rejects invalid raknet backend", () => {
   ));
 });
 
+void test("resolveJoinOptions rejects removed js raknet backend alias", () => {
+  assert.throws(() => resolveJoinOptions(
+    { ...emptyJoinInput, account: "user", raknetBackend: "js" },
+    {}
+  ));
+});
+
 void test("resolveJoinOptions uses raknet defaults when transport is set", () => {
   const options = resolveJoinOptions({ ...emptyJoinInput, account: "user", transport: "raknet" }, {});
   assert.equal(options.transport, "raknet");
