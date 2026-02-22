@@ -145,6 +145,19 @@ npm run build
 
 Authentication uses Microsoft device code flow (no client secrets or password). Tokens are cached in an encrypted local cache. On Windows, the cache encryption key is protected with DPAPI (CurrentUser scope) before being persisted to disk.
 
+This project currently authenticates with Prismarine `flow: live` and `authTitle: MinecraftNintendoSwitch` (`deviceType: Nintendo`). This is an explicit compatibility choice for Bedrock/Xbox title+device token chain generation used by the current Prismarine stack.
+
+Important clarification:
+
+- The client does not embed or send a Nintendo client secret.
+- `authTitle` is a public OAuth client identifier, not a private secret.
+- Bedrock server login still uses your own Microsoft/Xbox account identity and token chain.
+
+Alternatives:
+
+- You can migrate to `flow: msal` with your own Azure app registration (`mainrock-bedcraft`), which is more explicit for app branding during Microsoft sign-in.
+- For Bedrock connectivity, `msal` can be less compatible on some servers because `prismarine-auth` documents it as user-auth focused while `live` includes full title/device auth path.
+
 Device-code browser behavior is controlled by Microsoft identity policies. If there is no active Microsoft browser session, or if risk-based checks trigger re-authentication, the browser will request full sign-in (password/MFA) instead of a single "Allow" confirmation.
 
 ## Testing RakNet Transport
