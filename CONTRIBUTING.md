@@ -33,6 +33,7 @@ npm run build
 - Add tests for behavior changes.
 - Do not log secrets, tokens, or private identifiers.
 - Prefer small, composable functions and explicit naming.
+- Do not add fallback branches that mask functional errors; fail fast with explicit errors.
 
 ## Pull Request Checklist
 
