@@ -15,9 +15,9 @@ This document defines incremental delivery for a Bedrock LAN bot that runs on to
 ## Delivery Strategy
 
 1. Build a reliable online runtime first.
-2. Prioritize safe `follow-player` behavior (avoid drowning/falls/lava) using reactive safety before full chunk/pathfinding stack.
-3. Add observability and world-state ingestion.
-4. Add safe movement primitives and action pacing.
+2. Prioritize reliable `follow-player`/`follow-coordinates` with chunk-aware navigation (`decode level_chunk -> passability graph -> A* path -> waypoint execution`).
+3. Keep reactive safety and anti-stuck as fallback layers when navigation data is incomplete.
+4. Add observability and world-state ingestion.
 5. Add resource-aware planning and execution.
 6. Add strategy layer (goal selection profiles).
 
@@ -26,11 +26,13 @@ This document defines incremental delivery for a Bedrock LAN bot that runs on to
 - [x] Follow target tracking via `add_player`/`move_player` entity packets.
 - [x] Patrol fallback when target is temporarily unknown.
 - [x] Single-remote-player fallback targeting when requested nickname is not visible yet.
+- [ ] Decode `level_chunk` payload into block passability queries (`isSolid`, `isPassable`, `isStandable`).
+- [ ] Add bounded A* for near-field navigation on loaded chunks (step up/down constraints, diagonal policy).
+- [ ] Execute A* waypoints in movement loop for `follow-player` and `follow-coordinates`.
+- [ ] Replan path on target movement, chunk updates, and failed progress.
 - [x] Reactive movement safety: emergency recovery on sudden/continuous descent and low-air/health danger signals.
 - [x] Safety circuit-breaker: repeated danger strikes trigger temporary panic recovery before pursuit resumes.
 - [x] Anti-stuck obstacle recovery driven by correction bursts, with bounded door/block interaction probes.
-- [ ] Chunk-aware hazard map for lava/water/cliff avoidance on planned movement.
-- [ ] Short-horizon replanning around dangerous blocks while keeping follow distance.
 - [ ] Add end-to-end LAN scenario tests for "follow player without drowning/falling".
 
 ## Phase 0: Runtime Reliability
@@ -49,7 +51,7 @@ This document defines incremental delivery for a Bedrock LAN bot that runs on to
 - [x] Track bot pose from authoritative server movement packets.
 - [x] Track nearby entities with add/update/remove lifecycle.
 - [ ] Decode chunk payloads into block-access API.
-- [ ] Build block query primitives: `getBlock`, `isSolid`, `isLiquid`, `isPassable`.
+- [ ] Build block query primitives: `getBlock`, `isSolid`, `isLiquid`, `isPassable`, `isStandable`.
 - [ ] Add unit tests for chunk decode and block query correctness.
 
 ## Phase 2: Resource Detection
@@ -72,6 +74,7 @@ This document defines incremental delivery for a Bedrock LAN bot that runs on to
 
 - [ ] Implement local collision and step feasibility checks.
 - [ ] Implement A* pathfinding over dynamic voxel grid.
+- [ ] Integrate waypoint follower with follow goals (`follow-player`, `follow-coordinates`).
 - [ ] Handle jumps, sprint toggles, and edge safety constraints.
 - [ ] Add stuck detection and local replanning.
 - [ ] Add traversal policies for liquids and fall risk limits.
@@ -120,4 +123,5 @@ This document defines incremental delivery for a Bedrock LAN bot that runs on to
 - This iteration adds fallback follow-target selection: if explicit nickname is missing and exactly one remote player is tracked, follow that player temporarily.
 - This iteration adds repeated-danger panic recovery to pause pursuit after clustered air/health/terrain hazard signals.
 - This iteration adds correction-driven obstacle recovery and door interaction probes to prevent indefinite wall-stall behavior.
+- Next immediate iteration focus is chunk-aware pathing for reliable movement: decode chunk columns, compute passability, run bounded A*, and follow waypoints before adding broader gameplay behaviors.
 - Resource scanning, navigation, and gameplay execution are intentionally staged for subsequent increments to keep behavior measurable and safe.
