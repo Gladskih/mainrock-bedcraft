@@ -1,5 +1,11 @@
 import type { Logger } from "pino";
-import { MOVEMENT_GOAL_FOLLOW_COORDINATES, MOVEMENT_GOAL_FOLLOW_PLAYER, type MovementGoal } from "../constants.js";
+import {
+  DEFAULT_MOVEMENT_SPEED_MODE,
+  MOVEMENT_GOAL_FOLLOW_COORDINATES,
+  MOVEMENT_GOAL_FOLLOW_PLAYER,
+  type MovementGoal,
+  type MovementSpeedMode
+} from "../constants.js";
 import { configureMovementLoop } from "../bot/movementLoop.js";
 import type { ClientLike } from "./clientTypes.js";
 import type { Vector3 } from "./joinClientHelpers.js";
@@ -15,6 +21,9 @@ type SessionMovementLoopOptions = {
   setPosition: (position: Vector3) => void;
   getTick: () => bigint;
   getLocalRuntimeEntityId?: () => string | null;
+  movementSpeedMode?: MovementSpeedMode;
+  initialSpeedBlocksPerSecond?: number;
+  onMovementSpeedCalibrated?: (speedBlocksPerSecond: number) => void | Promise<void>;
 };
 
 export const createSessionMovementLoop = (options: SessionMovementLoopOptions): { cleanup: () => void } => {
@@ -28,6 +37,13 @@ export const createSessionMovementLoop = (options: SessionMovementLoopOptions): 
       getPosition: options.getPosition,
       setPosition: options.setPosition,
       getTick: options.getTick,
+      movementSpeedMode: options.movementSpeedMode ?? DEFAULT_MOVEMENT_SPEED_MODE,
+      ...(options.initialSpeedBlocksPerSecond !== undefined
+        ? { initialSpeedBlocksPerSecond: options.initialSpeedBlocksPerSecond }
+        : {}),
+      ...(options.onMovementSpeedCalibrated !== undefined
+        ? { onMovementSpeedCalibrated: options.onMovementSpeedCalibrated }
+        : {}),
       ...(options.getLocalRuntimeEntityId !== undefined
         ? { getLocalRuntimeEntityId: options.getLocalRuntimeEntityId }
         : {})
@@ -43,6 +59,13 @@ export const createSessionMovementLoop = (options: SessionMovementLoopOptions): 
       getPosition: options.getPosition,
       setPosition: options.setPosition,
       getTick: options.getTick,
+      movementSpeedMode: options.movementSpeedMode ?? DEFAULT_MOVEMENT_SPEED_MODE,
+      ...(options.initialSpeedBlocksPerSecond !== undefined
+        ? { initialSpeedBlocksPerSecond: options.initialSpeedBlocksPerSecond }
+        : {}),
+      ...(options.onMovementSpeedCalibrated !== undefined
+        ? { onMovementSpeedCalibrated: options.onMovementSpeedCalibrated }
+        : {}),
       ...(options.getLocalRuntimeEntityId !== undefined
         ? { getLocalRuntimeEntityId: options.getLocalRuntimeEntityId }
         : {})
@@ -55,6 +78,13 @@ export const createSessionMovementLoop = (options: SessionMovementLoopOptions): 
       getPosition: options.getPosition,
       setPosition: options.setPosition,
       getTick: options.getTick,
+      movementSpeedMode: options.movementSpeedMode ?? DEFAULT_MOVEMENT_SPEED_MODE,
+      ...(options.initialSpeedBlocksPerSecond !== undefined
+        ? { initialSpeedBlocksPerSecond: options.initialSpeedBlocksPerSecond }
+        : {}),
+      ...(options.onMovementSpeedCalibrated !== undefined
+        ? { onMovementSpeedCalibrated: options.onMovementSpeedCalibrated }
+        : {}),
       ...(options.getLocalRuntimeEntityId !== undefined
         ? { getLocalRuntimeEntityId: options.getLocalRuntimeEntityId }
         : {})

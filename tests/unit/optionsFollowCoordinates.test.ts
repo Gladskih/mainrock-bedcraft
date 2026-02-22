@@ -24,7 +24,8 @@ const emptyJoinInput = {
   chunkRadius: undefined,
   reconnectRetries: undefined,
   reconnectBaseDelay: undefined,
-  reconnectMaxDelay: undefined
+  reconnectMaxDelay: undefined,
+  speedProfileFile: undefined
 };
 
 void test("resolveJoinOptions resolves follow-coordinates goal from cli input", () => {

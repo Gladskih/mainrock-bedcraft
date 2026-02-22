@@ -9,11 +9,21 @@ import {
 } from "../constants.js";
 import { disconnectClient, isRecoverableReadError } from "./clientConnectionCleanup.js";
 import type { JoinOptions } from "./joinClient.js";
-import { getProfileName, isLevelChunkPacket, isStartGamePacket, isVector3, readPacketId, readOptionalStringField, readPacketEventName, toChunkKey, toError, type Vector3 } from "./joinClientHelpers.js";
+import {
+  getProfileName,
+  isLevelChunkPacket,
+  isStartGamePacket,
+  isVector3,
+  readOptionalBigIntField,
+  readPacketId,
+  readOptionalStringField, readPacketEventName, toChunkKey, toError,
+  type Vector3
+} from "./joinClientHelpers.js";
 import { createSessionClient } from "./sessionClientFactory.js";
 import { createPlayerTrackingState } from "./playerTrackingState.js";
 import { createPlayerListState } from "./playerListState.js";
 import { createPlayerListProbe } from "./playerListProbe.js";
+import { attachMovementPacketHandlers } from "./joinClientSessionMovementHandlers.js";
 import { configurePostJoinPackets } from "./postJoinPackets.js";
 import { toChunkPublisherUpdateLogFields, toStartGameLogFields } from "./sessionWorldLogging.js";
 import { startSessionMovementLoopWithPlanner } from "./sessionMovementPlanner.js";
@@ -30,7 +40,6 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
     let currentPosition: Vector3 | null = null;
     let movementLoop: { cleanup: () => void } | null = null;
     let runtimeHeartbeatId: ReturnType<typeof setInterval> | null = null;
-    let chunkPublisherUpdateLogged = false;
     const worldStateBridge = createWorldStateBridge();
     const setCurrentPosition = (position: Vector3): void => {
       currentPosition = position;
@@ -74,10 +83,8 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
       fail(new Error(`Join timed out after ${Math.max(0, Date.now() - joinStartedAtMs)}ms (${timeoutDetails})`));
       disconnectClient(client);
     }, joinTimeoutMs);
-    const packetLogLimit = 50; // Log first few inbound packet names at debug to help diagnose join stalls without flooding.
     const chunkProgressLogInterval = DEFAULT_CHUNK_PROGRESS_LOG_INTERVAL;
     const runtimeHeartbeatIntervalMs = DEFAULT_BOT_HEARTBEAT_INTERVAL_MS;
-    let packetLogs = 0;
     const postJoin = configurePostJoinPackets(
       client,
       resolvedOptions.logger,
@@ -152,16 +159,19 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
         ? () => undefined
         : () => {
           startRuntimeHeartbeat();
-          movementLoop = startSessionMovementLoopWithPlanner({
-            client,
-            resolvedOptions,
-            playerTrackingState,
-            getPosition: () => currentPosition,
-            getTick: () => { inputTick += 1n; return inputTick; },
-            setPosition: (position) => { currentPosition = position; },
-            getLocalRuntimeEntityId: () => worldStateBridge.getSnapshot().localPlayer.runtimeEntityId
-          });
         };
+    const startMovementLoopIfNeeded = (): void => {
+      if (listPlayersOnly || movementLoop) return;
+      movementLoop = startSessionMovementLoopWithPlanner({
+        client,
+        resolvedOptions,
+        playerTrackingState,
+        getPosition: () => currentPosition,
+        getTick: () => { inputTick += 1n; return inputTick; },
+        setPosition: (position) => { currentPosition = position; },
+        getLocalRuntimeEntityId: () => worldStateBridge.getSnapshot().localPlayer.runtimeEntityId
+      });
+    };
     const handleChunkProgress = listPlayersOnly
       ? () => undefined
       : () => {
@@ -187,9 +197,6 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
       if (!name) return;
       lastPacketName = name;
       lastPacketAtMs = Date.now();
-      if (packetLogs >= packetLogLimit) return;
-      packetLogs += 1;
-      resolvedOptions.logger.debug({ event: "packet_in", name }, "Received packet");
     });
     client.on("loggingIn", () => { resolvedOptions.logger.info({ event: "logging_in" }, "Sending login"); });
     client.on("client.server_handshake", () => {
@@ -211,18 +218,14 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
       const localRuntimeEntityId = readPacketId(packet, ["runtime_entity_id", "runtime_id"]);
       playerTrackingState.setLocalRuntimeEntityId(localRuntimeEntityId);
       const position = isVector3(packet.player_position) ? packet.player_position : null;
+      const currentTick = readOptionalBigIntField(packet, "current_tick");
+      if (currentTick !== null) inputTick = currentTick;
       worldStateBridge.setLocalFromStartGame(localRuntimeEntityId, packet.dimension ?? null, position);
       currentPosition = position;
       resolvedOptions.logger.info(toStartGameLogFields(resolvedOptions, client, packet, localRuntimeEntityId, position), "Received start game");
     });
     client.on("network_chunk_publisher_update", (packet) => {
-      const logPayload = toChunkPublisherUpdateLogFields(packet);
-      if (chunkPublisherUpdateLogged) {
-        resolvedOptions.logger.debug(logPayload, "Updated chunk publisher");
-        return;
-      }
-      chunkPublisherUpdateLogged = true;
-      resolvedOptions.logger.info(logPayload, "Received network chunk publisher update");
+      resolvedOptions.logger.info(toChunkPublisherUpdateLogFields(packet), "Received network chunk publisher update");
     });
     client.on("spawn", () => {
       const localPlayer = worldStateBridge.getSnapshot().localPlayer;
@@ -235,6 +238,7 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
         },
         "Spawn confirmed"
       );
+      startMovementLoopIfNeeded();
     });
     client.on("add_player", (packet) => {
       worldStateBridge.handleAddPlayerPacket(packet); playerTrackingState.handleAddPlayerPacket(packet);
@@ -272,12 +276,13 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
       if (shutdownRequested) { finish(); return; }
       fail(new Error(`Server closed connection: ${reason ?? "unknown"}`));
     });
-    client.on("move_player", (packet) => {
-      worldStateBridge.handleMovePlayerPacket(packet, setCurrentPosition);
-      playerTrackingState.handleMovePlayerPacket(packet, setCurrentPosition);
+    attachMovementPacketHandlers({
+      client,
+      logger: resolvedOptions.logger,
+      worldStateBridge,
+      playerTrackingState,
+      setCurrentPosition
     });
-    client.on("move_actor_absolute", (packet) => { worldStateBridge.handleMoveEntityPacket(packet); });
-    client.on("move_entity", (packet) => { worldStateBridge.handleMoveEntityPacket(packet); });
     client.on("error", (error) => {
       const normalizedError = toError(error);
       if (!firstChunk && isRecoverableReadError(normalizedError)) {

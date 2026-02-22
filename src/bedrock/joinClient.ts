@@ -1,7 +1,12 @@
 import { isIP } from "node:net";
 import type { Authflow } from "prismarine-auth";
 import type { Logger } from "pino";
-import { RAKNET_BACKEND_NODE, type MovementGoal, type RaknetBackend } from "../constants.js";
+import {
+  RAKNET_BACKEND_NODE,
+  type MovementGoal,
+  type MovementSpeedMode,
+  type RaknetBackend
+} from "../constants.js";
 import type { AuthenticatedClientOptions } from "./authenticatedClientOptions.js";
 import type { ClientLike } from "./clientTypes.js";
 import type { Vector3 } from "./joinClientHelpers.js";
@@ -31,6 +36,9 @@ export type JoinOptions = {
   movementGoal: MovementGoal;
   followPlayerName: string | undefined;
   followCoordinates: Vector3 | undefined;
+  movementSpeedMode?: MovementSpeedMode;
+  initialSpeedBlocksPerSecond?: number;
+  onMovementSpeedCalibrated?: (speedBlocksPerSecond: number) => void | Promise<void>;
   listPlayersOnly?: boolean;
   playerListWaitMs?: number;
   onPlayerListUpdate?: (players: string[]) => void;

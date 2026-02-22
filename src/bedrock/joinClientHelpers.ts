@@ -5,6 +5,7 @@ export type StartGamePacket = {
   dimension?: string;
   level_id?: string;
   world_name?: string;
+  current_tick?: bigint | number | string;
   runtime_entity_id?: bigint | number | string;
   runtime_id?: bigint | number | string;
 };
@@ -48,6 +49,16 @@ export const readOptionalNumberField = (packet: unknown, fieldName: string): num
   if (typeof value !== "string") return null;
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? parsed : null;
+};
+
+export const readOptionalBigIntField = (packet: unknown, fieldName: string): bigint | null => {
+  if (!packet || typeof packet !== "object") return null;
+  if (!(fieldName in packet)) return null;
+  const value = (packet as Record<string, unknown>)[fieldName];
+  if (typeof value === "bigint") return value;
+  if (typeof value === "number" && Number.isFinite(value) && Number.isInteger(value)) return BigInt(value);
+  if (typeof value === "string" && INTEGER_STRING_PATTERN.test(value)) return BigInt(value);
+  return null;
 };
 
 const INTEGER_STRING_PATTERN = /^-?\d+$/;

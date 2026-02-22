@@ -6,14 +6,15 @@ import {
 } from "./joinClientHelpers.js";
 import { createBotWorldState, type BotWorldSnapshot } from "../bot/worldState.js";
 
-type WorldStateBridge = {
+export type WorldStateBridge = {
   getSnapshot: () => BotWorldSnapshot;
   setAuthenticatedPlayerName: (playerName: string | null) => void;
   setLocalFromStartGame: (runtimeEntityId: string | null, dimension: string | null, position: Vector3 | null) => void;
+  setLocalPosition: (position: Vector3) => void;
   handleAddPlayerPacket: (packet: unknown) => void;
   handleAddEntityPacket: (packet: unknown) => void;
   handleMovePlayerPacket: (packet: unknown, onLocalPosition: (position: Vector3) => void) => void;
-  handleMoveEntityPacket: (packet: unknown) => void;
+  handleMoveEntityPacket: (packet: unknown, onLocalPosition?: (position: Vector3) => void) => void;
   handleRemoveEntityPacket: (packet: unknown) => void;
 };
 
@@ -40,6 +41,9 @@ export const createWorldStateBridge = (): WorldStateBridge => {
     botWorldState.setLocalIdentity(localRuntimeEntityId, localPlayerName);
     botWorldState.setLocalPose(localDimension, position);
   };
+  const setLocalPosition = (position: Vector3): void => {
+    botWorldState.setLocalPose(localDimension, position);
+  };
   const handleAddPlayerPacket = (packet: unknown): void => {
     const runtimeEntityId = readRuntimeEntityId(packet);
     if (!runtimeEntityId) return;
@@ -63,10 +67,15 @@ export const createWorldStateBridge = (): WorldStateBridge => {
     }
     botWorldState.updateEntityPosition(runtimeEntityId, position);
   };
-  const handleMoveEntityPacket = (packet: unknown): void => {
+  const handleMoveEntityPacket = (packet: unknown, onLocalPosition?: (position: Vector3) => void): void => {
     const runtimeEntityId = readRuntimeEntityId(packet);
     const position = readPacketPosition(packet, "position");
-    if (!runtimeEntityId || !position || runtimeEntityId === localRuntimeEntityId) return;
+    if (!runtimeEntityId || !position) return;
+    if (runtimeEntityId === localRuntimeEntityId) {
+      botWorldState.setLocalPose(localDimension, position);
+      onLocalPosition?.(position);
+      return;
+    }
     botWorldState.updateEntityPosition(runtimeEntityId, position);
   };
   const handleRemoveEntityPacket = (packet: unknown): void => {
@@ -78,6 +87,7 @@ export const createWorldStateBridge = (): WorldStateBridge => {
     getSnapshot: botWorldState.getSnapshot,
     setAuthenticatedPlayerName,
     setLocalFromStartGame,
+    setLocalPosition,
     handleAddPlayerPacket,
     handleAddEntityPacket,
     handleMovePlayerPacket,

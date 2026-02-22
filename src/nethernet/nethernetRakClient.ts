@@ -9,7 +9,6 @@ import { decodeDiscoveryPacket, encodeDiscoveryPacket } from "./discoveryPackets
 import { NethernetSegmentReassembler, splitNethernetPayload } from "./segmentation.js";
 import type { DataChannelLike, DatagramRemoteInfo, DatagramSocketLike, EncapsulatedPacketLike, PeerConnectionLike } from "./nethernetRakClientTypes.js";
 export type { DataChannelLike, EncapsulatedPacketLike, PeerConnectionLike } from "./nethernetRakClientTypes.js";
-
 const require = createRequire(import.meta.url);
 let cachedNodeDataChannel: typeof nodeDataChannelType | null = null;
 
@@ -145,33 +144,11 @@ export class NethernetRakClient {
   }
 
   sendReliable(buffer: Buffer): void {
-    if (!this.reliableChannel || !this.reliableChannel.isOpen()) return;
-    if (buffer.length < 2 || buffer.readUInt8(0) !== 0xfe) return;
-    const payload = buffer.subarray(1);
-    if (this.sentPacketLogs < PACKET_LOG_SAMPLE_LIMIT) {
-      this.sentPacketLogs += 1;
-      const firstByte = payload.length > 0 ? payload.readUInt8(0) : null;
-      const hexPrefix = payload.subarray(0, Math.min(8, payload.length)).toString("hex");
-      this.options.logger.debug(
-        { event: "nethernet_send", label: RELIABLE_DATA_CHANNEL_LABEL, bytes: payload.length, firstByte, hexPrefix },
-        "NetherNet outbound packet"
-      );
-    }
-    const maxSegmentBytes = Math.min(
-      NETHERNET_MAX_SEGMENT_BYTES,
-      Math.max(1, this.reliableChannel.maxMessageSize() - 1)
-    );
-    for (const segment of this.dependencies.splitNethernetPayload(payload, maxSegmentBytes)) {
-      if (this.sentSegmentLogs < SEGMENT_LOG_SAMPLE_LIMIT) {
-        this.sentSegmentLogs += 1;
-        this.options.logger.debug(
-          { event: "nethernet_segment_send", label: RELIABLE_DATA_CHANNEL_LABEL, bytes: segment.length, remainingSegments: segment.readUInt8(0) },
-          "NetherNet outbound segment"
-        );
-      }
-      const ok = this.reliableChannel.sendMessageBinary(segment);
-      if (!ok) this.close("NetherNet send failed");
-    }
+    this.sendOnChannel(this.reliableChannel, RELIABLE_DATA_CHANNEL_LABEL, buffer);
+  }
+
+  sendUnreliable(buffer: Buffer): void {
+    this.sendOnChannel(this.unreliableChannel, UNRELIABLE_DATA_CHANNEL_LABEL, buffer);
   }
 
   private registerSocketEvents(socket: DatagramSocketLike): void {
@@ -180,6 +157,36 @@ export class NethernetRakClient {
       this.options.logger.error({ event: "nethernet_socket_error", error: error.message }, "NetherNet socket error");
       this.close("NetherNet socket error");
     });
+  }
+
+  private sendOnChannel(channel: DataChannelLike | null, label: string, buffer: Buffer): void {
+    if (!channel || !channel.isOpen()) return;
+    if (buffer.length < 2 || buffer.readUInt8(0) !== 0xfe) return;
+    const payload = buffer.subarray(1);
+    if (this.sentPacketLogs < PACKET_LOG_SAMPLE_LIMIT) {
+      this.sentPacketLogs += 1;
+      const firstByte = payload.length > 0 ? payload.readUInt8(0) : null;
+      const hexPrefix = payload.subarray(0, Math.min(8, payload.length)).toString("hex");
+      this.options.logger.debug(
+        { event: "nethernet_send", label, bytes: payload.length, firstByte, hexPrefix },
+        "NetherNet outbound packet"
+      );
+    }
+    const maxSegmentBytes = Math.min(
+      NETHERNET_MAX_SEGMENT_BYTES,
+      Math.max(1, channel.maxMessageSize() - 1)
+    );
+    for (const segment of this.dependencies.splitNethernetPayload(payload, maxSegmentBytes)) {
+      if (this.sentSegmentLogs < SEGMENT_LOG_SAMPLE_LIMIT) {
+        this.sentSegmentLogs += 1;
+        this.options.logger.debug(
+          { event: "nethernet_segment_send", label, bytes: segment.length, remainingSegments: segment.readUInt8(0) },
+          "NetherNet outbound segment"
+        );
+      }
+      const ok = channel.sendMessageBinary(segment);
+      if (!ok) this.close("NetherNet send failed");
+    }
   }
 
   private registerPeerEvents(peer: PeerConnectionLike): void {

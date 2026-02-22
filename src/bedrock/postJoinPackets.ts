@@ -35,6 +35,17 @@ export const configurePostJoinPackets = (
   let chunkRadiusScheduled = false;
   let lastRequestedChunkRadius: number | null = null;
   const sendResourcePackResponse = () => safeWrite(client, "resource_pack_client_response", { response_status: "completed", resourcepackids: [] });
+  const sendLoadingScreenReady = (): void => {
+    safeQueue(client, "serverbound_loading_screen", { type: 1 });
+    safeQueue(client, "serverbound_loading_screen", { type: 2 });
+  };
+  const sendSpawnInteract = (): void => {
+    safeQueue(client, "interact", {
+      action_id: "mouse_over_entity",
+      target_entity_id: 0n,
+      position: { x: 0, y: 0, z: 0 }
+    });
+  };
   const queueChunkRadiusRequest = (chunkRadius: number): void => {
     lastRequestedChunkRadius = chunkRadius;
     safeQueue(client, "request_chunk_radius", { chunk_radius: chunkRadius, max_radius: chunkRadius });
@@ -90,6 +101,11 @@ export const configurePostJoinPackets = (
     ensureClientCacheStatus();
     scheduleChunkRadiusRequest();
   };
+  const onSpawn = () => {
+    sendLoadingScreenReady();
+    sendSpawnInteract();
+    logger.info({ event: "loading_screen_ready" }, "Signaled client loading completion");
+  };
   const onResourcePacksInfo = () => {
     logger.info({ event: "resource_packs_info" }, "Received resource packs info");
     sendResourcePackResponse();
@@ -101,6 +117,7 @@ export const configurePostJoinPackets = (
     scheduleChunkRadiusRequest();
   };
   client.on?.("join", onJoin);
+  client.on?.("spawn", onSpawn);
   client.on?.("chunk_radius_update", onChunkRadiusUpdate);
   client.once?.("resource_packs_info", onResourcePacksInfo);
   client.once?.("resource_pack_stack", onResourcePackStack);
@@ -108,6 +125,7 @@ export const configurePostJoinPackets = (
     cleanup: () => {
       if (requestTimeoutId) clearTimeout(requestTimeoutId);
       client.removeListener("join", onJoin);
+      client.removeListener("spawn", onSpawn);
       client.removeListener("chunk_radius_update", onChunkRadiusUpdate);
       client.removeListener("resource_packs_info", onResourcePacksInfo);
       client.removeListener("resource_pack_stack", onResourcePackStack);

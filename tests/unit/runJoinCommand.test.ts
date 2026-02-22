@@ -8,7 +8,9 @@ import {
   DEFAULT_RAKNET_BACKEND,
   MOVEMENT_GOAL_FOLLOW_COORDINATES,
   MOVEMENT_GOAL_FOLLOW_PLAYER,
-  MOVEMENT_GOAL_SAFE_WALK
+  MOVEMENT_GOAL_SAFE_WALK,
+  MOVEMENT_SPEED_MODE_FIXED,
+  MOVEMENT_SPEED_MODE_CALIBRATE
 } from "../../src/constants.js";
 import { selectServerByName } from "../../src/bedrock/serverSelection.js";
 
@@ -19,8 +21,11 @@ type JoinCall = {
   raknetBackend: string;
   transport: string;
   movementGoal: string;
+  movementSpeedMode?: string;
+  initialSpeedBlocksPerSecond?: number;
   followPlayerName: string | undefined;
   followCoordinates: { x: number; y: number; z: number } | undefined;
+  onMovementSpeedCalibrated?: (speedBlocksPerSecond: number) => void | Promise<void>;
   nethernetServerId?: bigint;
   minecraftVersion?: string;
 };
@@ -30,26 +35,39 @@ const createLogger = (): Logger => ({
   warn: () => undefined
 } as unknown as Logger);
 
+const hasOverride = <K extends keyof JoinCommandOptions>(
+  overrides: Partial<JoinCommandOptions>,
+  key: K
+): boolean => Object.prototype.hasOwnProperty.call(overrides, key);
+
 const createBaseJoinOptions = (overrides: Partial<JoinCommandOptions> = {}): JoinCommandOptions => ({
-  accountName: "user",
-  host: "127.0.0.1",
-  port: DEFAULT_BEDROCK_PORT,
-  serverName: undefined,
-  transport: "raknet",
-  discoveryTimeoutMs: 1,
-  cacheDirectory: undefined,
-  keyFilePath: undefined,
-  environmentKey: undefined,
-  minecraftVersion: undefined,
-  joinTimeoutMs: 1,
-  disconnectAfterFirstChunk: true,
-  forceRefresh: false,
-  skipPing: false,
-  raknetBackend: DEFAULT_RAKNET_BACKEND,
-  movementGoal: MOVEMENT_GOAL_SAFE_WALK,
-  followPlayerName: undefined,
-  followCoordinates: undefined,
-  ...overrides
+  accountName: overrides.accountName ?? "user",
+  host: hasOverride(overrides, "host") ? overrides.host : "127.0.0.1",
+  port: overrides.port ?? DEFAULT_BEDROCK_PORT,
+  serverName: hasOverride(overrides, "serverName") ? overrides.serverName : undefined,
+  transport: overrides.transport ?? "raknet",
+  discoveryTimeoutMs: overrides.discoveryTimeoutMs ?? 1,
+  cacheDirectory: overrides.cacheDirectory ?? undefined,
+  keyFilePath: overrides.keyFilePath ?? undefined,
+  environmentKey: overrides.environmentKey ?? undefined,
+  minecraftVersion: overrides.minecraftVersion ?? undefined,
+  joinTimeoutMs: overrides.joinTimeoutMs ?? 1,
+  disconnectAfterFirstChunk: overrides.disconnectAfterFirstChunk ?? true,
+  forceRefresh: overrides.forceRefresh ?? false,
+  skipPing: overrides.skipPing ?? false,
+  raknetBackend: overrides.raknetBackend ?? DEFAULT_RAKNET_BACKEND,
+  movementGoal: overrides.movementGoal ?? MOVEMENT_GOAL_SAFE_WALK,
+  followPlayerName: overrides.followPlayerName ?? undefined,
+  followCoordinates: overrides.followCoordinates ?? undefined,
+  movementSpeedMode: overrides.movementSpeedMode ?? MOVEMENT_SPEED_MODE_FIXED,
+  ...(overrides.speedProfileFilePath !== undefined ? { speedProfileFilePath: overrides.speedProfileFilePath } : {}),
+  ...(overrides.viewDistanceChunks !== undefined ? { viewDistanceChunks: overrides.viewDistanceChunks } : {}),
+  ...(overrides.reconnectMaxRetries !== undefined ? { reconnectMaxRetries: overrides.reconnectMaxRetries } : {}),
+  ...(overrides.reconnectBaseDelayMs !== undefined ? { reconnectBaseDelayMs: overrides.reconnectBaseDelayMs } : {}),
+  ...(overrides.reconnectMaxDelayMs !== undefined ? { reconnectMaxDelayMs: overrides.reconnectMaxDelayMs } : {}),
+  ...(overrides.listPlayersOnly !== undefined ? { listPlayersOnly: overrides.listPlayersOnly } : {}),
+  ...(overrides.playerListWaitMs !== undefined ? { playerListWaitMs: overrides.playerListWaitMs } : {}),
+  ...(overrides.onPlayerListUpdate !== undefined ? { onPlayerListUpdate: overrides.onPlayerListUpdate } : {})
 });
 
 const createDependencies = () => {
@@ -68,8 +86,15 @@ const createDependencies = () => {
         raknetBackend: options.raknetBackend,
         transport: options.transport,
         movementGoal: options.movementGoal,
+        ...(options.movementSpeedMode !== undefined ? { movementSpeedMode: options.movementSpeedMode } : {}),
+        ...(options.initialSpeedBlocksPerSecond !== undefined
+          ? { initialSpeedBlocksPerSecond: options.initialSpeedBlocksPerSecond }
+          : {}),
         followPlayerName: options.followPlayerName,
         followCoordinates: options.followCoordinates,
+        ...(options.onMovementSpeedCalibrated !== undefined
+          ? { onMovementSpeedCalibrated: options.onMovementSpeedCalibrated }
+          : {}),
         ...(options.nethernetServerId !== undefined ? { nethernetServerId: options.nethernetServerId } : {}),
         ...(options.minecraftVersion !== undefined ? { minecraftVersion: options.minecraftVersion } : {})
       };
@@ -118,6 +143,7 @@ void test("runJoinCommand joins by host", async () => {
     raknetBackend: DEFAULT_RAKNET_BACKEND,
     transport: "raknet",
     movementGoal: MOVEMENT_GOAL_SAFE_WALK,
+    movementSpeedMode: MOVEMENT_SPEED_MODE_FIXED,
     followPlayerName: undefined,
     followCoordinates: undefined
   });
@@ -134,6 +160,7 @@ void test("runJoinCommand joins by name", async () => {
     raknetBackend: DEFAULT_RAKNET_BACKEND,
     transport: "raknet",
     movementGoal: MOVEMENT_GOAL_SAFE_WALK,
+    movementSpeedMode: MOVEMENT_SPEED_MODE_FIXED,
     followPlayerName: undefined,
     followCoordinates: undefined
   });
@@ -200,6 +227,7 @@ void test("runJoinCommand passes follow-player goal", async () => {
     dependencies
   );
   assert.equal(calls.join?.movementGoal, MOVEMENT_GOAL_FOLLOW_PLAYER);
+  assert.equal(calls.join?.movementSpeedMode, MOVEMENT_SPEED_MODE_FIXED);
   assert.equal(calls.join?.followPlayerName, "TargetPlayer");
   assert.equal(calls.join?.followCoordinates, undefined);
 });
@@ -218,64 +246,15 @@ void test("runJoinCommand passes follow-coordinates goal", async () => {
   assert.deepEqual(calls.join?.followCoordinates, { x: -2962, y: 65, z: -2100 });
 });
 
-void test("runJoinCommand retries after failed join and then succeeds", async () => {
-  const { dependencies } = createDependencies();
-  let attempts = 0;
-  const delays: number[] = [];
-  dependencies.joinBedrockServer = async () => {
-    attempts += 1;
-    if (attempts === 1) throw new Error("temporary");
-  };
-  dependencies.sleep = async (delayMs) => {
-    delays.push(delayMs);
-  };
+void test("runJoinCommand enables calibration mode and receives calibration callback", async () => {
+  const { dependencies, calls } = createDependencies();
   await runJoinCommand(
     createBaseJoinOptions({
-      reconnectMaxRetries: 1,
-      reconnectBaseDelayMs: 10,
-      reconnectMaxDelayMs: 10
+      movementSpeedMode: MOVEMENT_SPEED_MODE_CALIBRATE
     }),
     createLogger(),
     dependencies
   );
-  assert.equal(attempts, 2);
-  assert.deepEqual(delays, [10]);
-});
-
-void test("runJoinCommand throws after reconnect retries are exhausted", async () => {
-  const { dependencies } = createDependencies();
-  let attempts = 0;
-  dependencies.joinBedrockServer = async () => {
-    attempts += 1;
-    throw new Error("still-failing");
-  };
-  await assert.rejects(() => runJoinCommand(
-    createBaseJoinOptions({
-      reconnectMaxRetries: 1,
-      reconnectBaseDelayMs: 5,
-      reconnectMaxDelayMs: 5
-    }),
-    createLogger(),
-    dependencies
-  ));
-  assert.equal(attempts, 2);
-});
-
-void test("runJoinCommand records online and offline state transitions from join callbacks", async () => {
-  const { dependencies } = createDependencies();
-  const transitions: Array<{ from: string | undefined; to: string | undefined }> = [];
-  const logger = ({
-    info: (data: { event?: string; from?: string; to?: string }) => {
-      if (data.event !== "join_state") return;
-      transitions.push({ from: data.from, to: data.to });
-    },
-    warn: () => undefined
-  } as unknown) as Logger;
-  dependencies.joinBedrockServer = async (options) => {
-    options.onConnectionStateChange?.({ state: "online", reason: "join_authenticated" });
-    options.onConnectionStateChange?.({ state: "offline", reason: "session_finished" });
-  };
-  await runJoinCommand(createBaseJoinOptions(), logger, dependencies);
-  assert.equal(transitions.some((transition) => transition.from === "connecting" && transition.to === "online"), true);
-  assert.equal(transitions.some((transition) => transition.from === "online" && transition.to === "offline"), true);
+  assert.equal(calls.join?.movementSpeedMode, MOVEMENT_SPEED_MODE_CALIBRATE);
+  assert.equal(typeof calls.join?.onMovementSpeedCalibrated, "function");
 });

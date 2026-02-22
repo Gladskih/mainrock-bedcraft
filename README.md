@@ -70,19 +70,25 @@ npm run join -- --name "My Server" --account "my-account" --disconnect-after-fir
 Follow a specific player once visible to the bot:
 
 ```bash
-npm run join -- --name "My Server" --account "my-account" --goal follow-player --follow-player "TargetPlayer"
+npm run join -- --name "My Server" --account "my-account" follow --follow-player "TargetPlayer"
 ```
 
 Follow world coordinates (accepts `x y z`, `x,y,z`, or `x;y;z`):
 
 ```bash
-npm run join -- --name "My Server" --account "my-account" --goal follow-coordinates --follow-coordinates "-2962 65 -2100"
+npm run join -- --name "My Server" --account "my-account" follow --follow-coordinates "-2962 65 -2100"
 ```
 
 Enable capped reconnect retries with jittered exponential backoff:
 
 ```bash
 npm run join -- --name "My Server" --account "my-account" --reconnect-retries 3 --reconnect-base-delay 1000 --reconnect-max-delay 8000
+```
+
+Run one-time movement speed calibration (probe ceiling, back off, verify, persist profile):
+
+```bash
+npm run join -- --name "My Server" --account "my-account" calibrate-speed --follow-coordinates "-2962 65 -2100"
 ```
 
 Override chunk radius soft cap (in chunks) for weak/strong hardware:
@@ -98,10 +104,13 @@ npm run players -- --name "My Server" --account "my-account" --wait 10000
 ```
 
 Default behavior: `join` stays connected, keeps receiving chunk stream updates, and runs until you stop the process (for example, `Ctrl+C`).
-While connected, the bot uses `--goal safe-walk` by default and sends paced `player_auth_input` packets.
+While connected, the bot runs `safe_walk` movement by default and sends paced `player_auth_input` packets.
+Movement speed defaults to fixed-profile mode: if a saved per-server speed profile exists, it is loaded and used as the runtime start/default limit.
+`calibrate-speed` enables one-time calibration mode that probes speed until correction ceiling, then verifies stable fallback and saves the resulting per-server profile for future sessions.
 In `follow-player` mode, if the target player is not yet visible in server entity packets, the bot patrols and keeps searching.
 In `follow-coordinates` mode, the bot moves toward static target coordinates and holds position on arrival distance.
 Follow movement now includes reactive safety recovery: sudden descent or dangerous local air/health updates trigger temporary jump/retreat behavior before pursuit resumes.
+Follow movement also includes anti-stuck obstacle recovery: repeated server corrections trigger sideways recovery maneuvers plus bounded block/door interaction probes in front of the bot.
 If the requested follow nickname is not visible but there is exactly one remote tracked player, the bot temporarily follows that player and switches back to exact nickname match as soon as it appears.
 Repeated hazard signals within a short window trigger a panic-recovery hold to reduce repeated lava/water/cliff exposure.
 
@@ -132,11 +141,12 @@ npm run build
 - `BEDCRAFT_SKIP_PING`: Set to `true` to skip the initial ping before join.
 - `BEDCRAFT_DISCONNECT_AFTER_FIRST_CHUNK`: Set to `true` to keep legacy one-shot join behavior.
 - `BEDCRAFT_RAKNET_BACKEND`: `native|node` or `raknet-native|raknet-node` (defaults to `raknet-native`).
-- `BEDCRAFT_GOAL`: `safe-walk|follow-player|follow-coordinates` (defaults to `safe-walk`).
-- `BEDCRAFT_FOLLOW_PLAYER`: Target player name for `follow-player` goal.
-- `BEDCRAFT_FOLLOW_COORDINATES`: Target world coordinates for `follow-coordinates` goal.
+- `BEDCRAFT_GOAL`: `safe-walk|follow-player|follow-coordinates` (used by base `join` flow and internals; follow subcommand resolves target explicitly).
+- `BEDCRAFT_FOLLOW_PLAYER`: Default target player name for `join follow --follow-player`.
+- `BEDCRAFT_FOLLOW_COORDINATES`: Default target coordinates for `join follow --follow-coordinates`.
 - `BEDCRAFT_PLAYERS_WAIT_MS`: Probe window for `players` command after login.
 - `BEDCRAFT_CHUNK_RADIUS`: Chunk radius soft cap in chunks (default is derived from system memory profile).
+- `BEDCRAFT_SPEED_PROFILE_FILE`: Override persisted movement speed profile file path.
 - `BEDCRAFT_RECONNECT_MAX_RETRIES`: Maximum reconnect retries after a failed join attempt.
 - `BEDCRAFT_RECONNECT_BASE_DELAY_MS`: Base reconnect delay in milliseconds.
 - `BEDCRAFT_RECONNECT_MAX_DELAY_MS`: Maximum reconnect delay cap in milliseconds.
@@ -159,6 +169,12 @@ Alternatives:
 - For Bedrock connectivity, `msal` can be less compatible on some servers because `prismarine-auth` documents it as user-auth focused while `live` includes full title/device auth path.
 
 Device-code browser behavior is controlled by Microsoft identity policies. If there is no active Microsoft browser session, or if risk-based checks trigger re-authentication, the browser will request full sign-in (password/MFA) instead of a single "Allow" confirmation.
+
+## NetherNet Implementation Notes
+
+- `df-mc/nethernet-spec` is the reference protocol description used by the implementation in this repository.
+- `df-mc/go-nethernet` is a Go implementation and cannot be consumed directly from this Node.js CLI without a separate bridge/service layer.
+- `PrismarineJS/node-nethernet` exists, but npm currently publishes `nethernet@0.0.1` while the repository is still in active churn; this project keeps its own transport implementation for deterministic behavior and testability.
 
 ## Testing RakNet Transport
 

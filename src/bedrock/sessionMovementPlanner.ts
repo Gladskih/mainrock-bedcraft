@@ -29,7 +29,16 @@ export const startSessionMovementLoopWithPlanner = (
       getPosition: options.getPosition,
       setPosition: options.setPosition,
       getTick: options.getTick,
-      getLocalRuntimeEntityId: options.getLocalRuntimeEntityId
+      getLocalRuntimeEntityId: options.getLocalRuntimeEntityId,
+      ...(options.resolvedOptions.movementSpeedMode !== undefined
+        ? { movementSpeedMode: options.resolvedOptions.movementSpeedMode }
+        : {}),
+      ...(options.resolvedOptions.initialSpeedBlocksPerSecond !== undefined
+        ? { initialSpeedBlocksPerSecond: options.resolvedOptions.initialSpeedBlocksPerSecond }
+        : {}),
+      ...(options.resolvedOptions.onMovementSpeedCalibrated !== undefined
+        ? { onMovementSpeedCalibrated: options.resolvedOptions.onMovementSpeedCalibrated }
+        : {})
     })
     : options.resolvedOptions.movementGoal === MOVEMENT_GOAL_FOLLOW_COORDINATES
       ? createSessionMovementLoop({
@@ -42,7 +51,16 @@ export const startSessionMovementLoopWithPlanner = (
         getPosition: options.getPosition,
         setPosition: options.setPosition,
         getTick: options.getTick,
-        getLocalRuntimeEntityId: options.getLocalRuntimeEntityId
+        getLocalRuntimeEntityId: options.getLocalRuntimeEntityId,
+        ...(options.resolvedOptions.movementSpeedMode !== undefined
+          ? { movementSpeedMode: options.resolvedOptions.movementSpeedMode }
+          : {}),
+        ...(options.resolvedOptions.initialSpeedBlocksPerSecond !== undefined
+          ? { initialSpeedBlocksPerSecond: options.resolvedOptions.initialSpeedBlocksPerSecond }
+          : {}),
+        ...(options.resolvedOptions.onMovementSpeedCalibrated !== undefined
+          ? { onMovementSpeedCalibrated: options.resolvedOptions.onMovementSpeedCalibrated }
+          : {})
       })
       : createSessionMovementLoop({
         client: options.client,
@@ -54,7 +72,16 @@ export const startSessionMovementLoopWithPlanner = (
         getPosition: options.getPosition,
         setPosition: options.setPosition,
         getTick: options.getTick,
-        getLocalRuntimeEntityId: options.getLocalRuntimeEntityId
+        getLocalRuntimeEntityId: options.getLocalRuntimeEntityId,
+        ...(options.resolvedOptions.movementSpeedMode !== undefined
+          ? { movementSpeedMode: options.resolvedOptions.movementSpeedMode }
+          : {}),
+        ...(options.resolvedOptions.initialSpeedBlocksPerSecond !== undefined
+          ? { initialSpeedBlocksPerSecond: options.resolvedOptions.initialSpeedBlocksPerSecond }
+          : {}),
+        ...(options.resolvedOptions.onMovementSpeedCalibrated !== undefined
+          ? { onMovementSpeedCalibrated: options.resolvedOptions.onMovementSpeedCalibrated }
+          : {})
       });
   const initialTasks = getAvailableProgressionTasks(
     new Set(),

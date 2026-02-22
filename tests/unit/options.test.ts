@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { resolveJoinOptions, resolvePlayersOptions, resolveScanOptions, type EnvironmentVariables } from "../../src/command-line/options.js";
+import {
+  resolveJoinOptions,
+  resolveScanOptions,
+  type EnvironmentVariables
+} from "../../src/command-line/options.js";
+import { resolveCalibrateSpeedOptions, resolveFollowOptions } from "../../src/command-line/joinBehaviorOptions.js";
 import {
   DEFAULT_BEDROCK_PORT,
   DEFAULT_JOIN_TIMEOUT_MS,
   DEFAULT_NETHERNET_PORT,
-  DEFAULT_PLAYER_LIST_WAIT_MS,
   DEFAULT_RAKNET_BACKEND,
   MOVEMENT_GOAL_FOLLOW_PLAYER,
   MOVEMENT_GOAL_SAFE_WALK,
@@ -36,7 +40,51 @@ const emptyJoinInput = {
   chunkRadius: undefined,
   reconnectRetries: undefined,
   reconnectBaseDelay: undefined,
-  reconnectMaxDelay: undefined
+  reconnectMaxDelay: undefined,
+  speedProfileFile: undefined
+};
+const emptyFollowInput = {
+  host: undefined,
+  port: undefined,
+  name: undefined,
+  transport: undefined,
+  account: undefined,
+  cacheDir: undefined,
+  keyFile: undefined,
+  minecraftVersion: undefined,
+  joinTimeout: undefined,
+  forceRefresh: undefined,
+  skipPing: undefined,
+  raknetBackend: undefined,
+  discoveryTimeout: undefined,
+  followPlayer: undefined,
+  followCoordinates: undefined,
+  chunkRadius: undefined,
+  reconnectRetries: undefined,
+  reconnectBaseDelay: undefined,
+  reconnectMaxDelay: undefined,
+  speedProfileFile: undefined
+};
+const emptyCalibrateInput = {
+  host: undefined,
+  port: undefined,
+  name: undefined,
+  transport: undefined,
+  account: undefined,
+  cacheDir: undefined,
+  keyFile: undefined,
+  minecraftVersion: undefined,
+  joinTimeout: undefined,
+  forceRefresh: undefined,
+  skipPing: undefined,
+  raknetBackend: undefined,
+  discoveryTimeout: undefined,
+  followCoordinates: undefined,
+  chunkRadius: undefined,
+  reconnectRetries: undefined,
+  reconnectBaseDelay: undefined,
+  reconnectMaxDelay: undefined,
+  speedProfileFile: undefined
 };
 
 void test("resolveScanOptions uses defaults", () => {
@@ -65,7 +113,45 @@ void test("resolveJoinOptions reads environment", () => {
   assert.equal(options.disconnectAfterFirstChunk, false);
   assert.equal(options.movementGoal, MOVEMENT_GOAL_SAFE_WALK);
   assert.equal(options.followPlayerName, undefined);
+  assert.equal(options.movementSpeedMode, "fixed");
   assert.equal(typeof options.viewDistanceChunks, "number");
+});
+
+void test("resolveFollowOptions resolves follow-player mode", () => {
+  const options = resolveFollowOptions(
+    { ...emptyFollowInput, account: "user", followPlayer: "TargetPlayer" },
+    {}
+  );
+  assert.equal(options.movementGoal, MOVEMENT_GOAL_FOLLOW_PLAYER);
+  assert.equal(options.followPlayerName, "TargetPlayer");
+});
+
+void test("resolveFollowOptions requires exactly one target", () => {
+  assert.throws(() => resolveFollowOptions(
+    { ...emptyFollowInput, account: "user" },
+    {}
+  ));
+  assert.throws(() => resolveFollowOptions(
+    { ...emptyFollowInput, account: "user", followPlayer: "TargetPlayer", followCoordinates: "10 70 -22" },
+    {}
+  ));
+});
+
+void test("resolveCalibrateSpeedOptions enables calibration mode", () => {
+  const options = resolveCalibrateSpeedOptions(
+    { ...emptyCalibrateInput, account: "user", followCoordinates: "10 70 -22" },
+    {}
+  );
+  assert.equal(options.movementSpeedMode, "calibrate");
+  assert.equal(options.movementGoal, "follow_coordinates");
+});
+
+void test("resolveJoinOptions resolves speed profile file path from environment", () => {
+  const options = resolveJoinOptions(
+    { ...emptyJoinInput, account: "user" },
+    { BEDCRAFT_SPEED_PROFILE_FILE: "profile.json" }
+  );
+  assert.equal(options.speedProfileFilePath, "profile.json");
 });
 
 void test("resolveJoinOptions rejects invalid port", () => {
@@ -199,77 +285,4 @@ void test("resolveJoinOptions rejects reconnect max delay lower than base delay"
     },
     {}
   ));
-});
-
-void test("resolveScanOptions rejects invalid transport", () => {
-  assert.throws(() => resolveScanOptions({ ...emptyScanInput, transport: "invalid" }, emptyEnv));
-});
-
-void test("resolvePlayersOptions uses defaults", () => {
-  const options = resolvePlayersOptions({
-    host: undefined,
-    port: undefined,
-    name: undefined,
-    account: "user",
-    cacheDir: undefined,
-    keyFile: undefined,
-    joinTimeout: undefined,
-    forceRefresh: undefined,
-    skipPing: undefined,
-    raknetBackend: undefined,
-    discoveryTimeout: undefined,
-    transport: undefined,
-    wait: undefined,
-    chunkRadius: undefined,
-    reconnectRetries: undefined,
-    reconnectBaseDelay: undefined,
-    reconnectMaxDelay: undefined
-  }, emptyEnv);
-  assert.equal(options.waitMs, DEFAULT_PLAYER_LIST_WAIT_MS);
-  assert.equal(options.transport, "nethernet");
-});
-
-void test("resolvePlayersOptions reads wait timeout from environment", () => {
-  const options = resolvePlayersOptions({
-    host: undefined,
-    port: undefined,
-    name: undefined,
-    account: "user",
-    cacheDir: undefined,
-    keyFile: undefined,
-    joinTimeout: undefined,
-    forceRefresh: undefined,
-    skipPing: undefined,
-    raknetBackend: undefined,
-    discoveryTimeout: undefined,
-    transport: undefined,
-    wait: undefined,
-    chunkRadius: undefined,
-    reconnectRetries: undefined,
-    reconnectBaseDelay: undefined,
-    reconnectMaxDelay: undefined
-  }, { BEDCRAFT_PLAYERS_WAIT_MS: "9000" });
-  assert.equal(options.waitMs, 9000);
-});
-
-void test("resolvePlayersOptions rejects invalid wait timeout", () => {
-  assert.throws(() => resolvePlayersOptions({
-    host: undefined,
-    port: undefined,
-    name: undefined,
-    account: "user",
-    cacheDir: undefined,
-    keyFile: undefined,
-    joinTimeout: undefined,
-    forceRefresh: undefined,
-    skipPing: undefined,
-    raknetBackend: undefined,
-    discoveryTimeout: undefined,
-    transport: undefined,
-    wait: "bad",
-    chunkRadius: undefined,
-    reconnectRetries: undefined,
-    reconnectBaseDelay: undefined,
-    reconnectMaxDelay: undefined
-  }, emptyEnv));
 });

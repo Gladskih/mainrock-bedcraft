@@ -1,27 +1,23 @@
 import assert from "node:assert/strict";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join as joinPath } from "node:path";
 import { test } from "node:test";
 import type { Authflow } from "prismarine-auth";
 import type { Logger } from "pino";
+import { createMovementSpeedProfileStore, toMovementSpeedProfileKey } from "../../src/bot/movementSpeedProfileStore.js";
 import { runJoinCommand, type JoinCommandOptions, type JoinDependencies } from "../../src/command-line/runJoinCommand.js";
 import {
-  DEFAULT_NETHERNET_PORT,
+  DEFAULT_BEDROCK_PORT,
   DEFAULT_RAKNET_BACKEND,
   MOVEMENT_GOAL_SAFE_WALK,
+  MOVEMENT_SPEED_MODE_CALIBRATE,
   MOVEMENT_SPEED_MODE_FIXED
 } from "../../src/constants.js";
 import { selectServerByName } from "../../src/bedrock/serverSelection.js";
 
 type JoinCall = {
-  host: string;
-  port: number;
-  skipPing: boolean;
-  raknetBackend: string;
-  transport: string;
-  movementGoal: string;
-  movementSpeedMode?: string;
-  followPlayerName: string | undefined;
-  followCoordinates: { x: number; y: number; z: number } | undefined;
-  nethernetServerId?: bigint;
+  initialSpeedBlocksPerSecond?: number;
 };
 
 const createLogger = (): Logger => ({
@@ -37,9 +33,9 @@ const hasOverride = <K extends keyof JoinCommandOptions>(
 const createBaseJoinOptions = (overrides: Partial<JoinCommandOptions> = {}): JoinCommandOptions => ({
   accountName: overrides.accountName ?? "user",
   host: hasOverride(overrides, "host") ? overrides.host : "127.0.0.1",
-  port: overrides.port ?? DEFAULT_NETHERNET_PORT,
+  port: overrides.port ?? DEFAULT_BEDROCK_PORT,
   serverName: hasOverride(overrides, "serverName") ? overrides.serverName : undefined,
-  transport: overrides.transport ?? "nethernet",
+  transport: overrides.transport ?? "raknet",
   discoveryTimeoutMs: overrides.discoveryTimeoutMs ?? 1,
   cacheDirectory: overrides.cacheDirectory ?? undefined,
   keyFilePath: overrides.keyFilePath ?? undefined,
@@ -74,17 +70,12 @@ const createDependencies = () => {
     createAuthFlow: () => ({ authflow: { username: "user" } as Authflow, keySource: "environment" }),
     joinBedrockServer: async (options) => {
       calls.join = {
-        host: options.host,
-        port: options.port,
-        skipPing: options.skipPing,
-        raknetBackend: options.raknetBackend,
-        transport: options.transport,
-        movementGoal: options.movementGoal,
-        ...(options.movementSpeedMode !== undefined ? { movementSpeedMode: options.movementSpeedMode } : {}),
-        followPlayerName: options.followPlayerName,
-        followCoordinates: options.followCoordinates,
-        ...(options.nethernetServerId !== undefined ? { nethernetServerId: options.nethernetServerId } : {})
+        ...(options.initialSpeedBlocksPerSecond !== undefined
+          ? { initialSpeedBlocksPerSecond: options.initialSpeedBlocksPerSecond }
+          : {})
       };
+      if (!options.onMovementSpeedCalibrated) return;
+      await options.onMovementSpeedCalibrated(1.42);
     },
     sleep: async () => undefined,
     random: () => 0
@@ -92,68 +83,47 @@ const createDependencies = () => {
   return { calls, dependencies };
 };
 
-const createNethernetServer = (host: string, senderId: bigint) => ({
-  host,
-  port: DEFAULT_NETHERNET_PORT,
-  senderId,
-  serverData: {
-    nethernetVersion: 1,
-    serverName: "Server",
-    levelName: "World",
-    gameType: 1,
-    playersOnline: 1,
-    playersMax: 10,
-    editorWorld: false,
-    transportLayer: 0
-  },
-  lastSeenMs: 0,
-  latencyMs: 1
-});
-
-void test("runJoinCommand joins nethernet by host", async () => {
+void test("runJoinCommand loads persisted speed profile and passes it to join", async () => {
   const { dependencies, calls } = createDependencies();
-  dependencies.discoverNethernetLanServers = async () => [createNethernetServer("127.0.0.1", 99n)];
-  await runJoinCommand(createBaseJoinOptions(), createLogger(), dependencies);
-  assert.deepEqual(calls.join, {
+  const directoryPath = await mkdtemp(joinPath(tmpdir(), "run-join-profile-"));
+  const profileFilePath = joinPath(directoryPath, "speed-profile.json");
+  const profileStore = createMovementSpeedProfileStore(profileFilePath);
+  const profileKey = toMovementSpeedProfileKey({
+    transport: "raknet",
     host: "127.0.0.1",
-    port: DEFAULT_NETHERNET_PORT,
-    skipPing: true,
-    raknetBackend: DEFAULT_RAKNET_BACKEND,
-    transport: "nethernet",
-    movementGoal: MOVEMENT_GOAL_SAFE_WALK,
-    movementSpeedMode: MOVEMENT_SPEED_MODE_FIXED,
-    followPlayerName: undefined,
-    followCoordinates: undefined,
-    nethernetServerId: 99n
+    port: DEFAULT_BEDROCK_PORT,
+    serverId: null
   });
+  await profileStore.writeSpeed(profileKey, 1.33);
+  await runJoinCommand(
+    createBaseJoinOptions({
+      speedProfileFilePath: profileFilePath
+    }),
+    createLogger(),
+    dependencies
+  );
+  assert.equal(calls.join?.initialSpeedBlocksPerSecond, 1.33);
 });
 
-void test("runJoinCommand joins nethernet by name", async () => {
-  const { dependencies, calls } = createDependencies();
-  dependencies.discoverNethernetLanServers = async () => [createNethernetServer("192.168.1.10", 42n)];
-  await runJoinCommand(createBaseJoinOptions({ host: undefined, serverName: "Server" }), createLogger(), dependencies);
-  assert.deepEqual(calls.join, {
-    host: "192.168.1.10",
-    port: DEFAULT_NETHERNET_PORT,
-    skipPing: true,
-    raknetBackend: DEFAULT_RAKNET_BACKEND,
-    transport: "nethernet",
-    movementGoal: MOVEMENT_GOAL_SAFE_WALK,
-    movementSpeedMode: MOVEMENT_SPEED_MODE_FIXED,
-    followPlayerName: undefined,
-    followCoordinates: undefined,
-    nethernetServerId: 42n
+void test("runJoinCommand saves calibrated speed profile", async () => {
+  const { dependencies } = createDependencies();
+  const directoryPath = await mkdtemp(joinPath(tmpdir(), "run-join-profile-"));
+  const profileFilePath = joinPath(directoryPath, "speed-profile.json");
+  await runJoinCommand(
+    createBaseJoinOptions({
+      speedProfileFilePath: profileFilePath,
+      movementSpeedMode: MOVEMENT_SPEED_MODE_CALIBRATE
+    }),
+    createLogger(),
+    dependencies
+  );
+  const profileStore = createMovementSpeedProfileStore(profileFilePath);
+  const profileKey = toMovementSpeedProfileKey({
+    transport: "raknet",
+    host: "127.0.0.1",
+    port: DEFAULT_BEDROCK_PORT,
+    serverId: null
   });
-});
-
-void test("runJoinCommand rejects when no nethernet servers respond by host", async () => {
-  const { dependencies } = createDependencies();
-  dependencies.discoverNethernetLanServers = async () => [];
-  await assert.rejects(() => runJoinCommand(createBaseJoinOptions(), createLogger(), dependencies));
-});
-
-void test("runJoinCommand rejects when multiple nethernet servers respond by host", async () => {
-  const { dependencies } = createDependencies();
-  dependencies.discoverNethernetLanServers = async () => [createNethernetServer("127.0.0.1", 1n), createNethernetServer("127.0.0.1", 2n)];
-  await assert.rejects(() => runJoinCommand(createBaseJoinOptions(), createLogger(), dependencies));
+  const persistedSpeed = await profileStore.readSpeed(profileKey);
+  assert.equal(persistedSpeed, 1.42);
 });

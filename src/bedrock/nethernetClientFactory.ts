@@ -22,8 +22,7 @@ export const disableBedrockEncryptionForNethernet = (client: unknown, logger: Lo
 type BedrockProtocolClientLike = ClientLike & {
   init: () => void;
   connect: () => void;
-  write: (name: string, params: object) => void;
-  queue: (name: string, params: object) => void;
+  queue?: (name: string, params: object) => void;
   connection?: { close?: () => void } | null;
   startEncryption?: (iv: Buffer) => void;
 };
@@ -56,8 +55,7 @@ export const createNethernetClient = (
     serverId,
     logger
   });
-  client.queue = (name, params) => client.write(name, params);
+  if (typeof client.queue !== "function") throw new Error("Bedrock client queue is unavailable");
   client.connect();
   return client;
 };
-

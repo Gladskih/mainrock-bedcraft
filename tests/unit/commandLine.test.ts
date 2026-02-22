@@ -4,7 +4,11 @@ import type { Logger } from "pino";
 import { createCommandLineProgram } from "../../src/command-line/commandLine.js";
 import type { JoinCommandOptions } from "../../src/command-line/runJoinCommand.js";
 import type { PlayersCommandOptions } from "../../src/command-line/runPlayersCommand.js";
-import { DEFAULT_RAKNET_BACKEND, MOVEMENT_GOAL_SAFE_WALK } from "../../src/constants.js";
+import {
+  DEFAULT_RAKNET_BACKEND,
+  MOVEMENT_GOAL_SAFE_WALK,
+  MOVEMENT_SPEED_MODE_FIXED
+} from "../../src/constants.js";
 
 const createLogger = (): Logger => ({
   info: () => undefined,
@@ -29,7 +33,8 @@ const createResolvedJoinOptions = (): JoinCommandOptions => ({
   raknetBackend: DEFAULT_RAKNET_BACKEND,
   movementGoal: MOVEMENT_GOAL_SAFE_WALK,
   followPlayerName: undefined,
-  followCoordinates: undefined
+  followCoordinates: undefined,
+  movementSpeedMode: MOVEMENT_SPEED_MODE_FIXED
 });
 
 const createResolvedPlayersOptions = (): PlayersCommandOptions => ({
@@ -52,6 +57,8 @@ const createResolvedPlayersOptions = (): PlayersCommandOptions => ({
 const createDependencies = (overrides: Partial<Parameters<typeof createCommandLineProgram>[1]> = {}) => ({
   resolveScanOptions: () => ({ timeoutMs: 1, serverNameFilter: undefined, transport: "nethernet" as const }),
   resolveJoinOptions: () => createResolvedJoinOptions(),
+  resolveFollowOptions: () => createResolvedJoinOptions(),
+  resolveCalibrateSpeedOptions: () => createResolvedJoinOptions(),
   resolvePlayersOptions: () => createResolvedPlayersOptions(),
   runScanCommand: async () => undefined,
   runJoinCommand: async () => undefined,
@@ -92,6 +99,50 @@ void test("command line players dispatches to handler", async () => {
   assert.equal(called, true);
 });
 
+void test("command line join follow dispatches to handler", async () => {
+  let called = false;
+  const program = createCommandLineProgram(createLogger(), createDependencies({
+    runJoinCommand: async () => {
+      called = true;
+    }
+  }));
+  await program.parseAsync([
+    "node",
+    "mainrock-bedcraft",
+    "join",
+    "--host",
+    "127.0.0.1",
+    "--account",
+    "user",
+    "follow",
+    "--follow-coordinates",
+    "10 70 -22"
+  ]);
+  assert.equal(called, true);
+});
+
+void test("command line join calibrate-speed dispatches to handler", async () => {
+  let called = false;
+  const program = createCommandLineProgram(createLogger(), createDependencies({
+    runJoinCommand: async () => {
+      called = true;
+    }
+  }));
+  await program.parseAsync([
+    "node",
+    "mainrock-bedcraft",
+    "join",
+    "--host",
+    "127.0.0.1",
+    "--account",
+    "user",
+    "calibrate-speed",
+    "--follow-coordinates",
+    "10 70 -22"
+  ]);
+  assert.equal(called, true);
+});
+
 void test("command line scan sets exit code on error", async () => {
   const previousExitCode = process.exitCode;
   const program = createCommandLineProgram(createLogger(), createDependencies({
@@ -124,6 +175,29 @@ void test("command line players sets exit code on error", async () => {
     }
   }));
   await program.parseAsync(["node", "mainrock-bedcraft", "players", "--host", "127.0.0.1", "--account", "user"]);
+  assert.equal(process.exitCode, 1);
+  process.exitCode = previousExitCode;
+});
+
+void test("command line join calibrate-speed sets exit code on error", async () => {
+  const previousExitCode = process.exitCode;
+  const program = createCommandLineProgram(createLogger(), createDependencies({
+    runJoinCommand: async () => {
+      throw new Error("calibrate-speed");
+    }
+  }));
+  await program.parseAsync([
+    "node",
+    "mainrock-bedcraft",
+    "join",
+    "--host",
+    "127.0.0.1",
+    "--account",
+    "user",
+    "calibrate-speed",
+    "--follow-coordinates",
+    "10 70 -22"
+  ]);
   assert.equal(process.exitCode, 1);
   process.exitCode = previousExitCode;
 });

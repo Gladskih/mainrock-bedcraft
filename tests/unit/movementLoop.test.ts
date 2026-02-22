@@ -4,9 +4,12 @@ import { test } from "node:test";
 import type { Logger } from "pino";
 import { configureMovementLoop } from "../../src/bot/movementLoop.js";
 import {
+  DEFAULT_MOVEMENT_AUTOTUNE_CALIBRATION_MAX_SPEED_BLOCKS_PER_SECOND,
+  DEFAULT_MOVEMENT_AUTOTUNE_CALIBRATION_STABILITY_WINDOW_MS,
   MOVEMENT_GOAL_FOLLOW_COORDINATES,
   MOVEMENT_GOAL_FOLLOW_PLAYER,
-  MOVEMENT_GOAL_SAFE_WALK
+  MOVEMENT_GOAL_SAFE_WALK,
+  MOVEMENT_SPEED_MODE_CALIBRATE
 } from "../../src/constants.js";
 
 type QueueCall = { name: string; params: object };
@@ -20,6 +23,27 @@ class FakeClient extends EventEmitter {
 }
 
 const createLogger = (): Logger => ({ info: () => undefined } as unknown as Logger);
+
+const createCapturingLogger = (): {
+  logger: Logger;
+  infoEvents: Array<{ payload: Record<string, unknown>; message: string }>;
+  warnEvents: Array<{ payload: Record<string, unknown>; message: string }>;
+} => {
+  const infoEvents: Array<{ payload: Record<string, unknown>; message: string }> = [];
+  const warnEvents: Array<{ payload: Record<string, unknown>; message: string }> = [];
+  return {
+    logger: {
+      info: (payload: Record<string, unknown>, message: string) => {
+        infoEvents.push({ payload, message });
+      },
+      warn: (payload: Record<string, unknown>, message: string) => {
+        warnEvents.push({ payload, message });
+      }
+    } as unknown as Logger,
+    infoEvents,
+    warnEvents
+  };
+};
 
 void test("configureMovementLoop sends periodic player_auth_input packets", async () => {
   const fakeClient = new FakeClient();
@@ -64,6 +88,7 @@ void test("configureMovementLoop cleanup stops packet emission", async () => {
 void test("configureMovementLoop follow-player mode patrols while target is unknown", async () => {
   const fakeClient = new FakeClient();
   let currentPosition = { x: 0, y: 70, z: 0 };
+  let tick = 0n;
   const movementLoop = configureMovementLoop({
     client: fakeClient,
     logger: createLogger(),
@@ -74,11 +99,14 @@ void test("configureMovementLoop follow-player mode patrols while target is unkn
     setPosition: (position) => {
       currentPosition = position;
     },
-    getTick: () => 1n
+    getTick: () => {
+      tick += 1n;
+      return tick;
+    }
   });
-  await new Promise((resolve) => setTimeout(resolve, 130));
+  await new Promise((resolve) => setTimeout(resolve, 260));
   movementLoop.cleanup();
-  assert.equal(fakeClient.queueCalls.length > 0, true);
+  assert.equal(fakeClient.queueCalls.length >= 2, true);
 });
 
 void test("configureMovementLoop follow-player mode moves toward target", async () => {
@@ -148,8 +176,8 @@ void test("configureMovementLoop follow-coordinates mode stops near target", asy
   movementLoop.cleanup();
   const stoppedMove = fakeClient.queueCalls.some((call) => {
     if (call.name !== "player_auth_input") return false;
-    const movementVector = (call.params as { move_vector?: { x?: number; y?: number } }).move_vector;
-    return (movementVector?.x ?? 1) === 0 && (movementVector?.y ?? 1) === 0;
+    const movementVector = (call.params as { move_vector?: { x?: number; z?: number } }).move_vector;
+    return (movementVector?.x ?? 1) === 0 && (movementVector?.z ?? 1) === 0;
   });
   assert.equal(stoppedMove, true);
 });
@@ -200,4 +228,50 @@ void test("configureMovementLoop applies low-air safety recovery from attributes
     return inputData?.jump === true;
   });
   assert.equal(hasSafetyJump, true);
+});
+
+void test("configureMovementLoop calibrates speed and emits calibration completion", async () => {
+  const fakeClient = new FakeClient();
+  const loggerCapture = createCapturingLogger();
+  let currentPosition = { x: 0, y: 70, z: 0 };
+  let calibratedSpeed: number | null = null;
+  const originalDateNow = Date.now;
+  let fakeNowMs = 0;
+  Date.now = () => fakeNowMs;
+  const movementLoop = configureMovementLoop({
+    client: fakeClient,
+    logger: loggerCapture.logger,
+    movementGoal: MOVEMENT_GOAL_SAFE_WALK,
+    movementSpeedMode: MOVEMENT_SPEED_MODE_CALIBRATE,
+    initialSpeedBlocksPerSecond: DEFAULT_MOVEMENT_AUTOTUNE_CALIBRATION_MAX_SPEED_BLOCKS_PER_SECOND,
+    getPosition: () => currentPosition,
+    setPosition: (position) => {
+      currentPosition = position;
+    },
+    getTick: () => 1n,
+    onMovementSpeedCalibrated: (speedBlocksPerSecond) => {
+      calibratedSpeed = speedBlocksPerSecond;
+      return Promise.reject(new Error("persist-failed"));
+    }
+  });
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  fakeClient.emit("correct_player_move_prediction", { position: { x: 0, y: 70, z: 0 } });
+  fakeNowMs += DEFAULT_MOVEMENT_AUTOTUNE_CALIBRATION_STABILITY_WINDOW_MS + 100;
+  await new Promise((resolve) => setTimeout(resolve, 130));
+  movementLoop.cleanup();
+  Date.now = originalDateNow;
+  assert.equal(calibratedSpeed !== null, true);
+  assert.equal(
+    loggerCapture.infoEvents.some((event) => event.payload["event"] === "movement_speed_calibration_phase"),
+    true
+  );
+  assert.equal(
+    loggerCapture.infoEvents.some((event) => event.payload["event"] === "movement_speed_calibrated"),
+    true
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(
+    loggerCapture.warnEvents.some((event) => event.payload["event"] === "movement_speed_calibration_persist_failed"),
+    true
+  );
 });

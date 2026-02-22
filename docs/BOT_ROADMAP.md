@@ -28,6 +28,7 @@ This document defines incremental delivery for a Bedrock LAN bot that runs on to
 - [x] Single-remote-player fallback targeting when requested nickname is not visible yet.
 - [x] Reactive movement safety: emergency recovery on sudden/continuous descent and low-air/health danger signals.
 - [x] Safety circuit-breaker: repeated danger strikes trigger temporary panic recovery before pursuit resumes.
+- [x] Anti-stuck obstacle recovery driven by correction bursts, with bounded door/block interaction probes.
 - [ ] Chunk-aware hazard map for lava/water/cliff avoidance on planned movement.
 - [ ] Short-horizon replanning around dangerous blocks while keeping follow distance.
 - [ ] Add end-to-end LAN scenario tests for "follow player without drowning/falling".
@@ -118,4 +119,5 @@ This document defines incremental delivery for a Bedrock LAN bot that runs on to
 - This iteration adds reactive movement safety recovery for safe-follow priority (drop/descent detection + low-air/health emergency handling).
 - This iteration adds fallback follow-target selection: if explicit nickname is missing and exactly one remote player is tracked, follow that player temporarily.
 - This iteration adds repeated-danger panic recovery to pause pursuit after clustered air/health/terrain hazard signals.
+- This iteration adds correction-driven obstacle recovery and door interaction probes to prevent indefinite wall-stall behavior.
 - Resource scanning, navigation, and gameplay execution are intentionally staged for subsequent increments to keep behavior measurable and safe.

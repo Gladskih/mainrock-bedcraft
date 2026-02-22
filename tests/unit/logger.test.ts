@@ -22,3 +22,15 @@ void test("stripSeverityFieldFromJsonLine removes severity field", () => {
 void test("stripSeverityFieldFromJsonLine keeps non-json lines untouched", () => {
   assert.equal(stripSeverityFieldFromJsonLine("plain text"), "plain text");
 });
+
+void test("stripSeverityFieldFromJsonLine keeps json without severity untouched", () => {
+  const line = "{\"time\":\"2026-02-21T00:00:00.000Z\",\"msg\":\"hello\"}\n";
+  assert.equal(stripSeverityFieldFromJsonLine(line), line);
+});
+
+void test("stripSeverityFieldFromJsonLine handles windows line endings", () => {
+  assert.equal(
+    stripSeverityFieldFromJsonLine("{\"severity\":\"warn\",\"msg\":\"hello\"}\r\n"),
+    "{\"msg\":\"hello\"}\r\n"
+  );
+});

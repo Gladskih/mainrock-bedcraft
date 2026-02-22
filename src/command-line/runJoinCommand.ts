@@ -1,11 +1,16 @@
 import type { Logger } from "pino";
 import {
   APPLICATION_ID,
+  DEFAULT_MOVEMENT_SPEED_MODE,
   DEFAULT_RECONNECT_BASE_DELAY_MS,
   DEFAULT_RECONNECT_JITTER_RATIO,
   DEFAULT_RECONNECT_MAX_DELAY_MS,
   DEFAULT_RECONNECT_MAX_RETRIES,
+  MOVEMENT_SPEED_MODE_CALIBRATE,
+  MOVEMENT_SPEED_MODE_FIXED,
+  MOVEMENT_SPEED_PROFILE_FILE_NAME,
   type MovementGoal,
+  type MovementSpeedMode,
   type RaknetBackend
 } from "../constants.js";
 import type { Vector3 } from "../bedrock/joinClientHelpers.js";
@@ -14,9 +19,12 @@ import { resolveCachePaths } from "../authentication/cachePaths.js";
 import { discoverLanServers } from "../bedrock/lanDiscovery.js";
 import { joinBedrockServer } from "../bedrock/joinClient.js";
 import { calculateReconnectDelayMs } from "../bedrock/reconnectPolicy.js";
-import { normalizeServerName, selectServerByName } from "../bedrock/serverSelection.js";
+import { selectServerByName } from "../bedrock/serverSelection.js";
 import { discoverNethernetLanServers } from "../nethernet/lanDiscovery.js";
 import { createJoinRuntimeStateMachine } from "./joinRuntimeStateMachine.js";
+import { createMovementSpeedProfileStore, toMovementSpeedProfileKey } from "../bot/movementSpeedProfileStore.js";
+import { resolveNethernetTarget, resolveRaknetTarget } from "./joinTargetResolution.js";
+import { join as joinPath } from "node:path";
 
 export type JoinCommandOptions = {
   accountName: string;
@@ -37,6 +45,8 @@ export type JoinCommandOptions = {
   movementGoal: MovementGoal;
   followPlayerName: string | undefined;
   followCoordinates: Vector3 | undefined;
+  movementSpeedMode?: MovementSpeedMode;
+  speedProfileFilePath?: string;
   viewDistanceChunks?: number;
   reconnectMaxRetries?: number;
   reconnectBaseDelayMs?: number;
@@ -77,6 +87,10 @@ export const runJoinCommand = async (
   const cachePaths = dependencies.resolveCachePaths(APPLICATION_ID);
   const cacheDirectory = options.cacheDirectory ?? cachePaths.cacheDirectory;
   const keyFilePath = options.keyFilePath ?? cachePaths.keyFilePath;
+  const speedProfileFilePath = options.speedProfileFilePath
+    ?? joinPath(cacheDirectory, MOVEMENT_SPEED_PROFILE_FILE_NAME);
+  const movementSpeedProfileStore = createMovementSpeedProfileStore(speedProfileFilePath);
+  const movementSpeedMode = options.movementSpeedMode ?? DEFAULT_MOVEMENT_SPEED_MODE;
   if (!options.host && !options.serverName) throw new Error("Either host or server name must be provided");
   const authFlowResult = dependencies.createAuthFlow({
     accountName: options.accountName,
@@ -104,6 +118,24 @@ export const runJoinCommand = async (
     const target = options.transport === "nethernet"
       ? await resolveNethernetTarget(options, logger, dependencies)
       : await resolveRaknetTarget(options, logger, dependencies);
+    const speedProfileKey = toMovementSpeedProfileKey({
+      transport: options.transport,
+      host: target.host,
+      port: target.port,
+      serverId: target.speedProfileServerId ?? null
+    });
+    const persistedSpeedBlocksPerSecond = await movementSpeedProfileStore.readSpeed(speedProfileKey);
+    if (persistedSpeedBlocksPerSecond !== null) {
+      logger.info(
+        {
+          event: "movement_speed_profile_loaded",
+          profileKey: speedProfileKey,
+          speedBlocksPerSecond: persistedSpeedBlocksPerSecond,
+          mode: movementSpeedMode
+        },
+        "Loaded persisted movement speed profile"
+      );
+    }
     joinRuntimeStateMachine.transitionTo("connecting", { attempt: attempt + 1, host: target.host, port: target.port });
     try {
       await dependencies.joinBedrockServer({
@@ -121,6 +153,26 @@ export const runJoinCommand = async (
         movementGoal: options.movementGoal,
         followPlayerName: options.followPlayerName,
         followCoordinates: options.followCoordinates,
+        movementSpeedMode,
+        ...(persistedSpeedBlocksPerSecond !== null
+          ? { initialSpeedBlocksPerSecond: persistedSpeedBlocksPerSecond }
+          : {}),
+        ...(movementSpeedMode === MOVEMENT_SPEED_MODE_CALIBRATE
+          ? {
+            onMovementSpeedCalibrated: async (calibratedSpeedBlocksPerSecond: number) => {
+              await movementSpeedProfileStore.writeSpeed(speedProfileKey, calibratedSpeedBlocksPerSecond);
+              logger.info(
+                {
+                  event: "movement_speed_profile_saved",
+                  profileKey: speedProfileKey,
+                  speedBlocksPerSecond: calibratedSpeedBlocksPerSecond,
+                  nextDefaultMode: MOVEMENT_SPEED_MODE_FIXED
+                },
+                "Saved calibrated movement speed profile"
+              );
+            }
+          }
+          : {}),
         ...(options.viewDistanceChunks !== undefined ? { viewDistanceChunks: options.viewDistanceChunks } : {}),
         ...(options.listPlayersOnly !== undefined ? { listPlayersOnly: options.listPlayersOnly } : {}),
         ...(options.playerListWaitMs !== undefined ? { playerListWaitMs: options.playerListWaitMs } : {}),
@@ -173,96 +225,4 @@ export const runJoinCommand = async (
       await dependencies.sleep(delayMs);
     }
   }
-};
-
-type ResolvedTarget = {
-  host: string;
-  port: number;
-  serverName: string | undefined;
-  nethernetServerId?: bigint;
-};
-
-const resolveRaknetTarget = async (
-  options: Pick<JoinCommandOptions, "host" | "port" | "serverName" | "discoveryTimeoutMs">,
-  logger: Logger,
-  dependencies: Pick<JoinDependencies, "discoverLanServers" | "selectServerByName">
-): Promise<ResolvedTarget> => {
-  if (options.host) return { host: options.host, port: options.port, serverName: options.serverName };
-  return resolveRaknetServerByName(options.serverName ?? "", options.discoveryTimeoutMs, logger, dependencies);
-};
-
-const resolveRaknetServerByName = async (
-  serverName: string,
-  timeoutMs: number,
-  logger: Logger,
-  dependencies: Pick<JoinDependencies, "discoverLanServers" | "selectServerByName">
-): Promise<ResolvedTarget> => {
-  logger.info({ event: "discover", timeoutMs, transport: "raknet" }, "Searching for LAN server by name");
-  const servers = await dependencies.discoverLanServers({ timeoutMs });
-  const selection = dependencies.selectServerByName(servers, serverName);
-  if (selection.matches.length === 0) throw new Error(`No LAN servers matched name: ${serverName}`);
-  if (selection.matches.length > 1) throw new Error(`Multiple LAN servers matched name: ${serverName}`);
-  const match = selection.matches[0];
-  if (!match) throw new Error(`No LAN servers matched name: ${serverName}`);
-  return { host: match.host, port: match.port, serverName: match.advertisement.motd };
-};
-
-const resolveNethernetTarget = async (
-  options: Pick<JoinCommandOptions, "host" | "port" | "serverName" | "discoveryTimeoutMs">,
-  logger: Logger,
-  dependencies: Pick<JoinDependencies, "discoverNethernetLanServers">
-): Promise<ResolvedTarget> => {
-  if (options.host) return resolveNethernetServerByHost(
-    options.host,
-    options.port,
-    options.discoveryTimeoutMs,
-    logger,
-    dependencies
-  );
-  return resolveNethernetServerByName(options.serverName ?? "", options.discoveryTimeoutMs, logger, dependencies);
-};
-
-const resolveNethernetServerByHost = async (
-  host: string,
-  port: number,
-  timeoutMs: number,
-  logger: Logger,
-  dependencies: Pick<JoinDependencies, "discoverNethernetLanServers">
-): Promise<ResolvedTarget> => {
-  logger.info({ event: "discover", timeoutMs, transport: "nethernet", host, port }, "Requesting NetherNet server id");
-  const servers = await dependencies.discoverNethernetLanServers({ timeoutMs, port, broadcastAddresses: [host] });
-  if (servers.length === 0) throw new Error(`No NetherNet servers responded from host: ${host}`);
-  if (servers.length > 1) throw new Error(`Multiple NetherNet servers responded from host: ${host}`);
-  const match = servers[0];
-  if (!match) throw new Error(`No NetherNet servers responded from host: ${host}`);
-  return {
-    host: match.host,
-    port: match.port,
-    serverName: match.serverData.serverName,
-    nethernetServerId: match.senderId
-  };
-};
-
-const resolveNethernetServerByName = async (
-  serverName: string,
-  timeoutMs: number,
-  logger: Logger,
-  dependencies: Pick<JoinDependencies, "discoverNethernetLanServers">
-): Promise<ResolvedTarget> => {
-  logger.info({ event: "discover", timeoutMs, transport: "nethernet" }, "Searching for LAN server by name");
-  const normalizedTarget = normalizeServerName(serverName);
-  const servers = await dependencies.discoverNethernetLanServers({ timeoutMs });
-  const matches = servers.filter((server) => {
-    return normalizeServerName(server.serverData.serverName).includes(normalizedTarget);
-  });
-  if (matches.length === 0) throw new Error(`No LAN servers matched name: ${serverName}`);
-  if (matches.length > 1) throw new Error(`Multiple LAN servers matched name: ${serverName}`);
-  const match = matches[0];
-  if (!match) throw new Error(`No LAN servers matched name: ${serverName}`);
-  return {
-    host: match.host,
-    port: match.port,
-    serverName: match.serverData.serverName,
-    nethernetServerId: match.senderId
-  };
 };

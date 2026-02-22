@@ -12,7 +12,9 @@ import {
   MOVEMENT_GOAL_FOLLOW_COORDINATES,
   MOVEMENT_GOAL_FOLLOW_PLAYER,
   MOVEMENT_GOAL_SAFE_WALK,
+  MOVEMENT_SPEED_MODE_FIXED,
   type MovementGoal,
+  type MovementSpeedMode,
   RAKNET_BACKEND_NODE,
   RAKNET_BACKEND_NATIVE,
   type RaknetBackend
@@ -51,6 +53,7 @@ export type JoinInput = {
   reconnectRetries: string | undefined;
   reconnectBaseDelay: string | undefined;
   reconnectMaxDelay: string | undefined;
+  speedProfileFile: string | undefined;
 };
 
 export type PlayersInput = {
@@ -158,6 +161,8 @@ export const resolveJoinOptions = (input: JoinInput, env: EnvironmentVariables):
   }
   const reconnectBaseDelayMs = parseNumber(input.reconnectBaseDelay ?? env["BEDCRAFT_RECONNECT_BASE_DELAY_MS"], DEFAULT_RECONNECT_BASE_DELAY_MS, "reconnect base delay");
   const reconnectMaxDelayMs = parseNumber(input.reconnectMaxDelay ?? env["BEDCRAFT_RECONNECT_MAX_DELAY_MS"], DEFAULT_RECONNECT_MAX_DELAY_MS, "reconnect max delay");
+  const movementSpeedMode: MovementSpeedMode = MOVEMENT_SPEED_MODE_FIXED;
+  const speedProfileFilePath = input.speedProfileFile ?? env["BEDCRAFT_SPEED_PROFILE_FILE"];
   const viewDistanceChunks = parseNumber(
     input.chunkRadius ?? env["BEDCRAFT_CHUNK_RADIUS"],
     resolveDefaultChunkRadiusSoftCap(),
@@ -183,10 +188,14 @@ export const resolveJoinOptions = (input: JoinInput, env: EnvironmentVariables):
     movementGoal,
     followPlayerName,
     followCoordinates,
+    movementSpeedMode,
     viewDistanceChunks,
     reconnectMaxRetries: parseNonNegativeNumber(input.reconnectRetries ?? env["BEDCRAFT_RECONNECT_MAX_RETRIES"], DEFAULT_RECONNECT_MAX_RETRIES, "reconnect retries"),
     reconnectBaseDelayMs,
-    reconnectMaxDelayMs
+    reconnectMaxDelayMs,
+    ...(speedProfileFilePath !== undefined
+      ? { speedProfileFilePath }
+      : {})
   };
 };
 
@@ -213,7 +222,8 @@ export const resolvePlayersOptions = (input: PlayersInput, env: EnvironmentVaria
       chunkRadius: input.chunkRadius,
       reconnectRetries: input.reconnectRetries,
       reconnectBaseDelay: input.reconnectBaseDelay,
-      reconnectMaxDelay: input.reconnectMaxDelay
+      reconnectMaxDelay: input.reconnectMaxDelay,
+      speedProfileFile: undefined
     },
     env
   );
