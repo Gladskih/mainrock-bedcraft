@@ -5,6 +5,55 @@ import { decodeDiscoveryPacket, encodeDiscoveryPacket, toDefaultNethernetEndpoin
 import { computeDiscoveryChecksum, decryptDiscoveryPayload, encryptDiscoveryPayload } from "../../src/nethernet/discoveryCrypto.js";
 
 const CHECKSUM_LENGTH_BYTES = 32;
+const LENGTH_PREFIX_BYTES = 2;
+const PACKET_ID_BYTES = 2;
+const SENDER_ID_BYTES = 8;
+const PADDING_BYTES = 8;
+const RESPONSE_PACKET_ID = 1;
+const RESPONSE_HEX_LENGTH_BYTES = 4;
+
+const encodeVaruint32 = (value: number): Buffer => {
+  const bytes: number[] = [];
+  let remaining = value >>> 0;
+  while (remaining >= 0x80) {
+    bytes.push((remaining & 0x7f) | 0x80);
+    remaining >>>= 7;
+  }
+  bytes.push(remaining);
+  return Buffer.from(bytes);
+};
+
+const encodeMinecraftLanServerData = (serverData: Omit<NethernetServerData, "transportLayer">): Buffer => {
+  const serverNameBytes = Buffer.from(serverData.serverName, "utf8");
+  const levelNameBytes = Buffer.from(serverData.levelName, "utf8");
+  const gameData = Buffer.alloc(1 + 4 + 4 + 1);
+  gameData.writeUInt8(serverData.gameType, 0);
+  gameData.writeInt32LE(serverData.playersOnline, 1);
+  gameData.writeInt32LE(serverData.playersMax, 5);
+  gameData.writeUInt8(serverData.editorWorld ? 1 : 0, 9);
+  return Buffer.concat([
+    Buffer.from([serverData.nethernetVersion]),
+    encodeVaruint32(serverNameBytes.length),
+    serverNameBytes,
+    encodeVaruint32(levelNameBytes.length),
+    levelNameBytes,
+    gameData
+  ]);
+};
+
+const encodeMinecraftLanResponsePacket = (senderId: bigint, serverData: Omit<NethernetServerData, "transportLayer">): Buffer => {
+  const serverDataHex = Buffer.from(encodeMinecraftLanServerData(serverData).toString("hex"), "utf8");
+  const responsePayload = Buffer.alloc(RESPONSE_HEX_LENGTH_BYTES + serverDataHex.length);
+  responsePayload.writeUInt32LE(serverDataHex.length, 0);
+  serverDataHex.copy(responsePayload, RESPONSE_HEX_LENGTH_BYTES);
+  const payloadLength = LENGTH_PREFIX_BYTES + PACKET_ID_BYTES + SENDER_ID_BYTES + PADDING_BYTES + responsePayload.length;
+  const payload = Buffer.alloc(payloadLength);
+  payload.writeUInt16LE(payloadLength, 0);
+  payload.writeUInt16LE(RESPONSE_PACKET_ID, LENGTH_PREFIX_BYTES);
+  payload.writeBigUInt64LE(senderId, LENGTH_PREFIX_BYTES + PACKET_ID_BYTES);
+  responsePayload.copy(payload, LENGTH_PREFIX_BYTES + PACKET_ID_BYTES + SENDER_ID_BYTES + PADDING_BYTES);
+  return encodeWithCrypto(payload);
+};
 
 const encodeWithCrypto = (payload: Buffer): Buffer => {
   const encrypted = encryptDiscoveryPayload(payload);
@@ -117,12 +166,18 @@ void test("encodeDiscoveryPacket supports multi-byte varuint lengths", () => {
 });
 
 void test("decodeDiscoveryPacket decodes Minecraft LAN response packet", () => {
-  const encoded = Buffer.from(
-    "746522a2e8a2147562be4c730796c5acccce13ba61e8442340833b5a905f969538ecd77474970394b3830d4cbfbef009a1d0731415512b489ce0662fd2c83ba74e930803171a1d571bb300bf2a3109be6bf570f1754efc39ed128f0ca098cff3357f7462d44e06def7acb5e492e7c6bec48cf2c055bf6b49b80c2470088d784e",
-    "hex"
-  );
+  const encoded = encodeMinecraftLanResponsePacket(11n, {
+    nethernetVersion: 4,
+    serverName: "targetplayer",
+    levelName: "Coast",
+    gameType: 0,
+    playersOnline: 1,
+    playersMax: 8,
+    editorWorld: false
+  });
   const decoded = decodeDiscoveryPacket(encoded);
   assert.ok(decoded);
+  assert.equal(decoded.senderId, 11n);
   assert.equal(decoded.packet.id, "response");
   assert.equal(decoded.packet.serverData.nethernetVersion, 4);
   assert.equal(decoded.packet.serverData.serverName, "targetplayer");
