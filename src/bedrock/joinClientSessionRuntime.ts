@@ -23,9 +23,10 @@ import { createSessionClient } from "./sessionClientFactory.js";
 import { createPlayerTrackingState } from "./playerTrackingState.js";
 import { createPlayerListState } from "./playerListState.js";
 import { createPlayerListProbe } from "./playerListProbe.js";
+import { createChunkPublisherUpdateLogger } from "./joinClientChunkPublisherLogger.js";
 import { attachMovementPacketHandlers } from "./joinClientSessionMovementHandlers.js";
 import { configurePostJoinPackets } from "./postJoinPackets.js";
-import { toChunkPublisherUpdateLogFields, toStartGameLogFields } from "./sessionWorldLogging.js";
+import { toStartGameLogFields } from "./sessionWorldLogging.js";
 import { startSessionMovementLoopWithPlanner } from "./sessionMovementPlanner.js";
 import { toRuntimeHeartbeatLogFields } from "./sessionRuntimeHeartbeat.js";
 import { createWorldStateBridge } from "./worldStateBridge.js";
@@ -91,6 +92,7 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
       requestChunkRadiusDelayMs,
       viewDistanceChunks
     );
+    const logChunkPublisherUpdate = createChunkPublisherUpdateLogger(resolvedOptions.logger);
     const clearJoinTimeout = () => {
       if (!joinTimeoutId) return;
       clearTimeout(joinTimeoutId);
@@ -225,7 +227,7 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
       resolvedOptions.logger.info(toStartGameLogFields(resolvedOptions, client, packet, localRuntimeEntityId, position), "Received start game");
     });
     client.on("network_chunk_publisher_update", (packet) => {
-      resolvedOptions.logger.info(toChunkPublisherUpdateLogFields(packet), "Received network chunk publisher update");
+      logChunkPublisherUpdate(packet);
     });
     client.on("spawn", () => {
       const localPlayer = worldStateBridge.getSnapshot().localPlayer;

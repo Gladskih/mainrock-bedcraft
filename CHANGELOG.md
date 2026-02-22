@@ -4,6 +4,26 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-02-22
+
+### Added
+
+- Correction-driven obstacle recovery for movement loop: repeated authoritative movement corrections now trigger bounded sidestep recovery maneuvers.
+- Bounded door/block interaction probes during obstacle recovery using `inventory_transaction` (`item_use`) to help unstuck bots spawned in enclosed spaces.
+- New unit-test coverage for obstacle recovery decisions, door-interaction packet writer, logger normalization branches, and calibration completion flow in movement loop.
+- README section documenting NetherNet implementation choices and external references (`nethernet-spec`, `go-nethernet`, `node-nethernet` status).
+
+### Changed
+
+- Fixed Bedrock `vec2f` movement mapping to use horizontal `x/z` axes in `player_auth_input` vectors (previously mismapped as `x/y`), restoring real movement behavior.
+- Movement loop authoritative correction handling now feeds anti-stuck logic directly to react faster on collision/wall stall.
+- CLI/runtime documentation updated to reflect command shape based on `join follow` and `join calibrate-speed`.
+
+### Fixed
+
+- Logger output remains compact JSON with `time` and `msg` while correctly omitting level fields without invalid JSON output.
+- Chunk publisher runtime logging no longer floods info output; first update stays `info`, subsequent updates are sampled in `debug`.
+
 ## [0.4.0] - 2026-02-21
 
 ### Added

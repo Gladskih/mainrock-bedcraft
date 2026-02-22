@@ -173,8 +173,8 @@ Device-code browser behavior is controlled by Microsoft identity policies. If th
 ## NetherNet Implementation Notes
 
 - `df-mc/nethernet-spec` is the reference protocol description used by the implementation in this repository.
-- `df-mc/go-nethernet` is a Go implementation and cannot be consumed directly from this Node.js CLI without a separate bridge/service layer.
-- `PrismarineJS/node-nethernet` exists, but npm currently publishes `nethernet@0.0.1` while the repository is still in active churn; this project keeps its own transport implementation for deterministic behavior and testability.
+- `df-mc/go-nethernet` is a Go implementation and cannot be consumed directly from this Node.js CLI without a separate bridge/service layer; its README currently marks it as "still in development" and "not yet feature-complete".
+- `PrismarineJS/node-nethernet` exists, but npm does not currently publish a `node-nethernet` package name; the published package is `nethernet@0.0.1` (WIP description), so this project keeps its own transport implementation for deterministic behavior and testability.
 
 ## Testing RakNet Transport
 
