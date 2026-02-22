@@ -157,14 +157,8 @@ void test("joinBedrockServer logs chunk progress while connected", async () => {
   await promise;
 });
 
-void test("joinBedrockServer follow-player goal sends movement toward target", async () => {
-  class WritableClient extends FakeClient {
-    queueCalls: Array<{ name: string; params: { move_vector?: { x?: number; z?: number } } }> = [];
-    queue(name: string, params: { move_vector?: { x?: number; z?: number } }): void {
-      this.queueCalls.push({ name, params });
-    }
-  }
-  const fakeClient = new WritableClient();
+void test("joinBedrockServer follow-player goal fails fast without decoded terrain chunks", async () => {
+  const fakeClient = new FakeClient();
   const promise = joinBedrockServer(createRaknetJoinOptions(fakeClient, {
     disconnectAfterFirstChunk: false,
     movementGoal: MOVEMENT_GOAL_FOLLOW_PLAYER,
@@ -174,11 +168,7 @@ void test("joinBedrockServer follow-player goal sends movement toward target", a
   fakeClient.emit("add_player", { runtime_id: 2n, username: "TargetPlayer", position: { x: 5, y: 70, z: 0 } });
   fakeClient.emit("spawn");
   fakeClient.emit("level_chunk", { x: 0, z: 0 });
-  await new Promise((resolve) => setTimeout(resolve, 130));
-  process.emit("SIGINT");
-  await promise;
-  assert.equal(fakeClient.queueCalls.some((call) => call.name === "player_auth_input"), true);
-  assert.equal(fakeClient.queueCalls.some((call) => (call.params.move_vector?.z ?? 0) > 0), true);
+  await assert.rejects(() => promise, /Navigation (path unavailable|chunk data unavailable)/);
 });
 
 void test("joinBedrockServer rejects nethernet join without server id", async () => {

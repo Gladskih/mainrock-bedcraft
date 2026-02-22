@@ -7,7 +7,6 @@ import {
   DEFAULT_MOVEMENT_AUTOTUNE_CALIBRATION_STABILITY_WINDOW_MS,
   DEFAULT_FOLLOW_COORDINATES_STOP_DISTANCE_BLOCKS,
   DEFAULT_FOLLOW_PLAYER_STOP_DISTANCE_BLOCKS,
-  DEFAULT_FOLLOW_PLAYER_WAIT_LOG_INTERVAL_MS,
   DEFAULT_MOVEMENT_LOOP_INTERVAL_MS,
   DEFAULT_MOVEMENT_SAFETY_LOG_INTERVAL_MS,
   MOVEMENT_SPEED_MODE_CALIBRATE,
@@ -21,6 +20,8 @@ import { createMovementObstacleRecoveryState, queueDoorInteractionPacket } from 
 import { createMovementSafetyState } from "./movementSafety.js";
 import { queueMovementPacket, type MovementPacketMode } from "./movementPacketWriter.js";
 import { createMovementSpeedAutotune } from "./movementSpeedAutotune.js";
+import { createFollowPlayerTargetAcquireState, updateFollowPlayerTargetAcquireState } from "./followPlayerTargetTimeout.js";
+import { resolveNavigationStopDistanceBlocks } from "./movementNavigationTarget.js";
 type MovementLoopOptions = {
   client: ClientLike;
   logger: Logger;
@@ -28,33 +29,23 @@ type MovementLoopOptions = {
   setPosition: (position: Vector3) => void;
   getTick: () => bigint;
   getLocalRuntimeEntityId?: () => string | null;
+  resolveNavigationWaypoint?: (position: Vector3, target: Vector3 | null) => Vector3 | null;
   movementSpeedMode?: MovementSpeedMode;
   initialSpeedBlocksPerSecond?: number;
   onMovementSpeedCalibrated?: (speedBlocksPerSecond: number) => void | Promise<void>;
 } & (
-  | {
-    movementGoal: "safe_walk";
-  }
-  | {
-    movementGoal: "follow_player";
-    followPlayerName: string;
-    getFollowTargetPosition: () => Vector3 | null;
-  }
-  | {
-    movementGoal: "follow_coordinates";
-    followCoordinates: Vector3;
-  }
+  | { movementGoal: "safe_walk" }
+  | { movementGoal: "follow_player"; followPlayerName: string; getFollowTargetPosition: () => Vector3 | null }
+  | { movementGoal: "follow_coordinates"; followCoordinates: Vector3 }
 );
 export const configureMovementLoop = (options: MovementLoopOptions): { cleanup: () => void } => {
   let movementStepIndex = 0;
   const movementPacketMode: MovementPacketMode = "player_auth_input";
-  let lastWaitLogAtMs = 0;
-  let lastSafetyLogAtMs = 0;
-  let coordinateArrivalLogged = false;
+  let lastSafetyLogAtMs = 0, calibrationLastCorrectionAtMs = Number.NEGATIVE_INFINITY;
+  let calibrationCorrectionObserved = false;
+  const followPlayerTargetAcquireState = createFollowPlayerTargetAcquireState();
   const movementSpeedMode = options.movementSpeedMode ?? MOVEMENT_SPEED_MODE_FIXED;
   let calibrationPhase: "probing" | "verifying" | "done" = movementSpeedMode === MOVEMENT_SPEED_MODE_CALIBRATE ? "probing" : "done";
-  let calibrationLastCorrectionAtMs = Number.NEGATIVE_INFINITY;
-  let calibrationCorrectionObserved = false;
   const movementSafetyState = createMovementSafetyState();
   const movementObstacleRecoveryState = createMovementObstacleRecoveryState();
   const movementSpeedAutotune = createMovementSpeedAutotune(
@@ -80,8 +71,7 @@ export const configureMovementLoop = (options: MovementLoopOptions): { cleanup: 
           ? { mode: "follow_coordinates", followCoordinates: options.followCoordinates }
           : { mode: "safe_walk" }),
       movementSpeedMode,
-      initialSpeedBlocksPerSecond: movementSpeedAutotune.getSpeedBlocksPerSecond(),
-      movementQueueAvailable: typeof options.client.queue === "function"
+      initialSpeedBlocksPerSecond: movementSpeedAutotune.getSpeedBlocksPerSecond()
     },
     "Starting movement loop"
   );
@@ -140,32 +130,68 @@ export const configureMovementLoop = (options: MovementLoopOptions): { cleanup: 
     const nowMs = Date.now();
     const position = options.getPosition();
     if (!position) return;
-    const followMovementVector = options.movementGoal === "follow_player"
-      ? toFollowMovementVector(position, options.getFollowTargetPosition(), DEFAULT_FOLLOW_PLAYER_STOP_DISTANCE_BLOCKS)
+    const directFollowPlayerTarget = options.movementGoal === "follow_player" ? options.getFollowTargetPosition() : null;
+    const directFollowCoordinatesTarget = options.movementGoal === "follow_coordinates" ? options.followCoordinates : null;
+    const navigationFollowPlayerTarget = options.movementGoal === "follow_player"
+      ? options.resolveNavigationWaypoint
+        ? options.resolveNavigationWaypoint(position, directFollowPlayerTarget)
+        : directFollowPlayerTarget
       : null;
-    const followCoordinatesMovementVector = options.movementGoal === "follow_coordinates"
-      ? toFollowMovementVector(position, options.followCoordinates, DEFAULT_FOLLOW_COORDINATES_STOP_DISTANCE_BLOCKS)
+    const navigationFollowCoordinatesTarget = options.movementGoal === "follow_coordinates"
+      ? options.resolveNavigationWaypoint
+        ? options.resolveNavigationWaypoint(position, directFollowCoordinatesTarget)
+        : directFollowCoordinatesTarget
+      : null;
+    const followPlayerStopDistanceBlocks = resolveNavigationStopDistanceBlocks(
+      navigationFollowPlayerTarget,
+      directFollowPlayerTarget,
+      DEFAULT_FOLLOW_PLAYER_STOP_DISTANCE_BLOCKS
+    );
+    const followCoordinatesStopDistanceBlocks = resolveNavigationStopDistanceBlocks(
+      navigationFollowCoordinatesTarget,
+      directFollowCoordinatesTarget,
+      DEFAULT_FOLLOW_COORDINATES_STOP_DISTANCE_BLOCKS
+    );
+    const followMovementVector = options.movementGoal === "follow_player"
+      ? toFollowMovementVector(position, navigationFollowPlayerTarget, followPlayerStopDistanceBlocks)
+      : null;
+    const followCoordinatesNavigationVector = options.movementGoal === "follow_coordinates"
+      ? toFollowMovementVector(
+        position, navigationFollowCoordinatesTarget, followCoordinatesStopDistanceBlocks
+      )
+      : null;
+    const followPlayerMovementVector = options.movementGoal === "follow_player" && directFollowPlayerTarget
+      ? followMovementVector ?? { x: 0, y: 0 }
       : null;
     const movementVector = options.movementGoal === "follow_player"
-      ? followMovementVector ?? toForwardMovementVector(movementStepIndex)
+      ? followPlayerMovementVector ?? { x: 0, y: 0 }
       : options.movementGoal === "follow_coordinates"
-        ? followCoordinatesMovementVector ?? { x: 0, y: 0 }
+        ? followCoordinatesNavigationVector ?? { x: 0, y: 0 }
         : toForwardMovementVector(movementStepIndex);
     movementStepIndex += 1;
-    if (options.movementGoal === "follow_player" && !followMovementVector) {
-      if (nowMs - lastWaitLogAtMs >= DEFAULT_FOLLOW_PLAYER_WAIT_LOG_INTERVAL_MS) {
-        lastWaitLogAtMs = nowMs;
-        options.logger.info({ mode: "follow_player", followPlayerName: options.followPlayerName }, "Target player is unknown, continuing search patrol");
-      }
+    if (options.movementGoal === "follow_player" && !directFollowPlayerTarget) {
+      updateFollowPlayerTargetAcquireState({
+        state: followPlayerTargetAcquireState,
+        nowMs,
+        hasTarget: false,
+        onWait: () => undefined,
+        onFailure: () => {
+          options.client.emit(
+            "error",
+            new Error(`Follow target '${options.followPlayerName}' was not found in tracked entities`)
+          );
+        }
+      });
+      if (followPlayerTargetAcquireState.failureRaised) return;
+    } else if (options.movementGoal === "follow_player") {
+      updateFollowPlayerTargetAcquireState({
+        state: followPlayerTargetAcquireState,
+        nowMs,
+        hasTarget: true,
+        onWait: () => undefined,
+        onFailure: () => undefined
+      });
     }
-    if (options.movementGoal === "follow_coordinates" && !followCoordinatesMovementVector && !coordinateArrivalLogged) {
-      coordinateArrivalLogged = true;
-      options.logger.info(
-        { mode: "follow_coordinates", followCoordinates: options.followCoordinates },
-        "Reached target coordinates"
-      );
-    }
-    if (options.movementGoal === "follow_coordinates" && followCoordinatesMovementVector) coordinateArrivalLogged = false;
     const safetyDecision = movementSafetyState.apply(position, movementVector, nowMs);
     if (safetyDecision.reason && nowMs - lastSafetyLogAtMs >= DEFAULT_MOVEMENT_SAFETY_LOG_INTERVAL_MS) {
       lastSafetyLogAtMs = nowMs;
@@ -183,10 +209,6 @@ export const configureMovementLoop = (options: MovementLoopOptions): { cleanup: 
     }
     if (obstacleRecoveryDecision.interaction) {
       queueDoorInteractionPacket(options.client, obstacleRecoveryDecision.interaction);
-      options.logger.info(
-        { event: "door_interaction_probe", blockPosition: obstacleRecoveryDecision.interaction.blockPosition, face: obstacleRecoveryDecision.interaction.face },
-        "Attempting door/block interaction probe"
-      );
     }
     const effectiveMovementVector = obstacleRecoveryDecision.movementVector;
     const movementMagnitude = toMovementMagnitude(effectiveMovementVector);
@@ -252,11 +274,10 @@ export const configureMovementLoop = (options: MovementLoopOptions): { cleanup: 
     const nextPosition = toNextPosition(position, delta);
     const yaw = toYawFromMovementVector(effectiveMovementVector);
     const cameraOrientation = toCameraOrientationFromYaw(yaw);
-    const localRuntimeEntityId = options.getLocalRuntimeEntityId?.() ?? null;
     queueMovementPacket({
       client: options.client,
       packetMode: movementPacketMode,
-      runtimeEntityId: localRuntimeEntityId,
+      runtimeEntityId: options.getLocalRuntimeEntityId?.() ?? null,
       getTick: options.getTick,
       nextPosition,
       yaw,

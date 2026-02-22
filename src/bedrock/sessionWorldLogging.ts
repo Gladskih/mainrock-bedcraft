@@ -26,6 +26,7 @@ export const toStartGameLogFields = (
   runtimeEntityId: localRuntimeEntityId,
   levelId: packet.level_id ?? null,
   worldName: packet.world_name ?? null,
+  blockNetworkIdsAreHashes: packet.block_network_ids_are_hashes ?? null,
   gameType: readOptionalNumberField(packet, "player_gamemode") ?? readOptionalNumberField(packet, "game_type"),
   difficulty: readOptionalNumberField(packet, "difficulty"),
   generator: readOptionalNumberField(packet, "generator"),

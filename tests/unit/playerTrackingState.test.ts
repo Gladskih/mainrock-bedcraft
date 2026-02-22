@@ -41,35 +41,22 @@ void test("createPlayerTrackingState clears follow target on remove_entity packe
   assert.equal(events.some((event) => event.event === "follow_target_lost"), true);
 });
 
-void test("createPlayerTrackingState falls back to single remote player when explicit target is missing", () => {
+void test("createPlayerTrackingState does not use fallback target when explicit name is missing", () => {
   const events: Array<{ event?: string }> = [];
   const state = createPlayerTrackingState(createLogger(events), "UnknownPlayer");
   state.setLocalRuntimeEntityId("1");
   state.handleAddPlayerPacket({ runtime_id: 1n, username: "SrgGld", position: { x: 0, y: 70, z: 0 } });
   state.handleAddPlayerPacket({ runtime_id: 2n, username: "targetplayer", position: { x: 8, y: 70, z: 9 } });
-  assert.deepEqual(state.resolveFollowTargetPosition(), { x: 8, y: 70, z: 9 });
-  assert.equal(events.some((event) => event.event === "follow_target_fallback"), true);
+  assert.equal(state.resolveFollowTargetPosition(), null);
+  assert.equal(events.some((event) => event.event === "follow_target_fallback"), false);
 });
 
-void test("createPlayerTrackingState prefers explicit match over fallback target", () => {
+void test("createPlayerTrackingState emits follow_target_missing when target entity no longer matches explicit name", () => {
   const events: Array<{ event?: string }> = [];
   const state = createPlayerTrackingState(createLogger(events), "TargetPlayer");
-  state.setLocalRuntimeEntityId("1");
-  state.handleAddPlayerPacket({ runtime_id: 1n, username: "SrgGld", position: { x: 0, y: 70, z: 0 } });
-  state.handleAddPlayerPacket({ runtime_id: 2n, username: "Alex", position: { x: 5, y: 70, z: 5 } });
+  state.handleAddPlayerPacket({ runtime_id: 2n, username: "TargetPlayer", position: { x: 5, y: 70, z: 5 } });
   assert.deepEqual(state.resolveFollowTargetPosition(), { x: 5, y: 70, z: 5 });
-  state.handleAddPlayerPacket({ runtime_id: 3n, username: "targetplayer", position: { x: 10, y: 70, z: 11 } });
-  assert.deepEqual(state.resolveFollowTargetPosition(), { x: 10, y: 70, z: 11 });
-  assert.equal(events.some((event) => event.event === "follow_target_fallback"), true);
-  assert.equal(events.some((event) => event.event === "follow_target_acquired"), true);
-});
-
-void test("createPlayerTrackingState clears fallback target when multiple remote players are present", () => {
-  const state = createPlayerTrackingState(createLogger([]), "UnknownPlayer");
-  state.setLocalRuntimeEntityId("1");
-  state.handleAddPlayerPacket({ runtime_id: 1n, username: "SrgGld", position: { x: 0, y: 70, z: 0 } });
-  state.handleAddPlayerPacket({ runtime_id: 2n, username: "Alex", position: { x: 5, y: 70, z: 5 } });
-  assert.deepEqual(state.resolveFollowTargetPosition(), { x: 5, y: 70, z: 5 });
-  state.handleAddPlayerPacket({ runtime_id: 3n, username: "Steve", position: { x: 6, y: 70, z: 6 } });
+  state.handleAddPlayerPacket({ runtime_id: 2n, username: "Alex", position: { x: 6, y: 70, z: 6 } });
   assert.equal(state.resolveFollowTargetPosition(), null);
+  assert.equal(events.some((event) => event.event === "follow_target_missing"), true);
 });

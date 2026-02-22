@@ -30,7 +30,8 @@
     "minecraft-data": "^3.105.0",
     "node-datachannel": "^0.32.0",
     "pino": "^10.2.0",
-    "prismarine-auth": "^2.7.0"
+    "prismarine-auth": "^2.7.0",
+    "prismarine-chunk": "^1.39.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",

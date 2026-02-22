@@ -106,12 +106,11 @@ npm run players -- --name "My Server" --account "my-account" --wait 10000
 Default behavior: `join` stays connected, keeps receiving chunk stream updates, and runs until you stop the process (for example, `Ctrl+C`).
 While connected, the bot runs `safe_walk` movement by default and sends paced `player_auth_input` packets.
 Movement speed defaults to fixed-profile mode: if a saved per-server speed profile exists, it is loaded and used as the runtime start/default limit.
-`calibrate-speed` enables one-time calibration mode that probes speed until correction ceiling, then verifies stable fallback and saves the resulting per-server profile for future sessions.
-In `follow-player` mode, if the target player is not yet visible in server entity packets, the bot patrols and keeps searching.
+`calibrate-speed` enables one-time calibration mode that probes speed until correction ceiling, then verifies stable speed and saves the resulting per-server profile for future sessions.
+In `follow-player` mode, the bot requires an explicit matching player entity; if it is not observed within the acquisition timeout, the session fails fast with an error.
 In `follow-coordinates` mode, the bot moves toward static target coordinates and holds position on arrival distance.
 Follow movement now includes reactive safety recovery: sudden descent or dangerous local air/health updates trigger temporary jump/retreat behavior before pursuit resumes.
 Follow movement also includes anti-stuck obstacle recovery: repeated server corrections trigger sideways recovery maneuvers plus bounded block/door interaction probes in front of the bot.
-If the requested follow nickname is not visible but there is exactly one remote tracked player, the bot temporarily follows that player and switches back to exact nickname match as soon as it appears.
 Repeated hazard signals within a short window trigger a panic-recovery hold to reduce repeated lava/water/cliff exposure.
 
 ## Development Commands

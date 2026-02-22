@@ -17,6 +17,7 @@ type SessionMovementLoopOptions = {
   followPlayerName: string | undefined;
   followCoordinates: Vector3 | undefined;
   getFollowTargetPosition: () => Vector3 | null;
+  resolveNavigationWaypoint?: (position: Vector3, target: Vector3 | null) => Vector3 | null;
   getPosition: () => Vector3 | null;
   setPosition: (position: Vector3) => void;
   getTick: () => bigint;
@@ -34,6 +35,9 @@ export const createSessionMovementLoop = (options: SessionMovementLoopOptions): 
       movementGoal: MOVEMENT_GOAL_FOLLOW_PLAYER,
       followPlayerName: options.followPlayerName ?? "unknown",
       getFollowTargetPosition: options.getFollowTargetPosition,
+      ...(options.resolveNavigationWaypoint !== undefined
+        ? { resolveNavigationWaypoint: options.resolveNavigationWaypoint }
+        : {}),
       getPosition: options.getPosition,
       setPosition: options.setPosition,
       getTick: options.getTick,
@@ -56,6 +60,9 @@ export const createSessionMovementLoop = (options: SessionMovementLoopOptions): 
       logger: options.logger,
       movementGoal: MOVEMENT_GOAL_FOLLOW_COORDINATES,
       followCoordinates: options.followCoordinates,
+      ...(options.resolveNavigationWaypoint !== undefined
+        ? { resolveNavigationWaypoint: options.resolveNavigationWaypoint }
+        : {}),
       getPosition: options.getPosition,
       setPosition: options.setPosition,
       getTick: options.getTick,
@@ -75,6 +82,9 @@ export const createSessionMovementLoop = (options: SessionMovementLoopOptions): 
       client: options.client,
       logger: options.logger,
       movementGoal: "safe_walk",
+      ...(options.resolveNavigationWaypoint !== undefined
+        ? { resolveNavigationWaypoint: options.resolveNavigationWaypoint }
+        : {}),
       getPosition: options.getPosition,
       setPosition: options.setPosition,
       getTick: options.getTick,

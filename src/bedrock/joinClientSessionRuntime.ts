@@ -16,8 +16,7 @@ import {
   isVector3,
   readOptionalBigIntField,
   readPacketId,
-  readOptionalStringField, readPacketEventName, toChunkKey, toError,
-  type Vector3
+  readOptionalStringField, readPacketEventName, toChunkKey, toError, type Vector3
 } from "./joinClientHelpers.js";
 import { createSessionClient } from "./sessionClientFactory.js";
 import { createPlayerTrackingState } from "./playerTrackingState.js";
@@ -29,11 +28,11 @@ import { configurePostJoinPackets } from "./postJoinPackets.js";
 import { toStartGameLogFields } from "./sessionWorldLogging.js";
 import { startSessionMovementLoopWithPlanner } from "./sessionMovementPlanner.js";
 import { toRuntimeHeartbeatLogFields } from "./sessionRuntimeHeartbeat.js";
+import { createSessionTerrainNavigation } from "./sessionTerrainNavigation.js";
 import { createWorldStateBridge } from "./worldStateBridge.js";
 export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> => new Promise((resolve, reject) => {
     const client = createSessionClient(resolvedOptions);
-    let firstChunk = false;
-    let finished = false;
+    let firstChunk = false; let finished = false;
     let shutdownRequested = false;
     let authenticatedPlayerName: string | null = null;
     let chunkPacketCount = 0;
@@ -41,10 +40,9 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
     let currentPosition: Vector3 | null = null;
     let movementLoop: { cleanup: () => void } | null = null;
     let runtimeHeartbeatId: ReturnType<typeof setInterval> | null = null;
+    const terrainNavigation = createSessionTerrainNavigation(client, resolvedOptions.logger);
     const worldStateBridge = createWorldStateBridge();
-    const setCurrentPosition = (position: Vector3): void => {
-      currentPosition = position;
-    };
+    const setCurrentPosition = (position: Vector3): void => { currentPosition = position; };
     const playerTrackingState = createPlayerTrackingState(resolvedOptions.logger, resolvedOptions.followPlayerName);
     const listPlayersOnly = resolvedOptions.listPlayersOnly ?? false;
     const playerListWaitMs = resolvedOptions.playerListWaitMs ?? DEFAULT_PLAYER_LIST_WAIT_MS;
@@ -148,6 +146,7 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
       if (runtimeHeartbeatId) clearInterval(runtimeHeartbeatId);
       runtimeHeartbeatId = null;
       movementLoop?.cleanup();
+      terrainNavigation.cleanup();
       movementLoop = null;
       postJoin.cleanup();
     };
@@ -171,7 +170,8 @@ export const createJoinPromise = (resolvedOptions: JoinOptions): Promise<void> =
         getPosition: () => currentPosition,
         getTick: () => { inputTick += 1n; return inputTick; },
         setPosition: (position) => { currentPosition = position; },
-        getLocalRuntimeEntityId: () => worldStateBridge.getSnapshot().localPlayer.runtimeEntityId
+        getLocalRuntimeEntityId: () => worldStateBridge.getSnapshot().localPlayer.runtimeEntityId,
+        terrainNavigation
       });
     };
     const handleChunkProgress = listPlayersOnly

@@ -5,6 +5,7 @@ export type StartGamePacket = {
   dimension?: string;
   level_id?: string;
   world_name?: string;
+  block_network_ids_are_hashes?: boolean;
   current_tick?: bigint | number | string;
   runtime_entity_id?: bigint | number | string;
   runtime_id?: bigint | number | string;
@@ -13,6 +14,19 @@ export type StartGamePacket = {
 export type LevelChunkPacket = {
   x?: number;
   z?: number;
+  dimension?: number;
+  sub_chunk_count?: number;
+  highest_subchunk_count?: number;
+  cache_enabled?: boolean;
+  blobs?: bigint[];
+  payload?: Buffer;
+};
+
+export type SubChunkPacket = {
+  cache_enabled?: boolean;
+  dimension?: number;
+  origin?: Vector3;
+  entries?: unknown[];
 };
 
 export const isVector3 = (value: unknown): value is Vector3 => {
@@ -28,6 +42,12 @@ export const isStartGamePacket = (value: unknown): value is StartGamePacket => {
 export const isLevelChunkPacket = (value: unknown): value is LevelChunkPacket => {
   if (!value || typeof value !== "object") return false;
   return "x" in value && "z" in value;
+};
+
+export const isSubChunkPacket = (value: unknown): value is SubChunkPacket => {
+  if (!value || typeof value !== "object") return false;
+  if (!("origin" in value) || !("entries" in value)) return false;
+  return true;
 };
 
 export const readOptionalStringField = (packet: unknown, fieldName: string): string | null => {

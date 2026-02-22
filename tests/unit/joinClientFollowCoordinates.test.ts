@@ -14,16 +14,9 @@ class FakeClient extends EventEmitter {
   disconnect(): void {}
 }
 
-class WritableClient extends FakeClient {
-  queueCalls: Array<{ name: string; params: { move_vector?: { x?: number; z?: number } } }> = [];
-  queue(name: string, params: { move_vector?: { x?: number; z?: number } }): void {
-    this.queueCalls.push({ name, params });
-  }
-}
-
 const createLogger = (): Logger => ({ debug: () => undefined, info: () => undefined } as unknown as Logger);
 
-const createJoinOptions = (client: WritableClient) => ({
+const createJoinOptions = (client: FakeClient) => ({
   host: "127.0.0.1",
   port: 19132,
   accountName: "user",
@@ -40,8 +33,8 @@ const createJoinOptions = (client: WritableClient) => ({
   clientFactory: () => client
 });
 
-void test("joinBedrockServer follow-coordinates goal sends movement toward target coordinates", async () => {
-  const fakeClient = new WritableClient();
+void test("joinBedrockServer follow-coordinates goal fails fast without decoded terrain chunks", async () => {
+  const fakeClient = new FakeClient();
   const promise = joinBedrockServer({
     ...createJoinOptions(fakeClient),
     movementGoal: MOVEMENT_GOAL_FOLLOW_COORDINATES,
@@ -50,9 +43,5 @@ void test("joinBedrockServer follow-coordinates goal sends movement toward targe
   fakeClient.emit("start_game", { runtime_entity_id: 1n, player_position: { x: 0, y: 70, z: 0 }, dimension: "overworld" });
   fakeClient.emit("spawn");
   fakeClient.emit("level_chunk", { x: 0, z: 0 });
-  await new Promise((resolve) => setTimeout(resolve, 130));
-  process.emit("SIGINT");
-  await promise;
-  assert.equal(fakeClient.queueCalls.some((call) => call.name === "player_auth_input"), true);
-  assert.equal(fakeClient.queueCalls.some((call) => (call.params.move_vector?.z ?? 0) > 0), true);
+  await assert.rejects(() => promise, /Navigation (path unavailable|chunk data unavailable)/);
 });

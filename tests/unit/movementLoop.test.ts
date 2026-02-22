@@ -85,30 +85,6 @@ void test("configureMovementLoop cleanup stops packet emission", async () => {
   assert.equal(fakeClient.queueCalls.length, packetCountBeforeCleanup);
 });
 
-void test("configureMovementLoop follow-player mode patrols while target is unknown", async () => {
-  const fakeClient = new FakeClient();
-  let currentPosition = { x: 0, y: 70, z: 0 };
-  let tick = 0n;
-  const movementLoop = configureMovementLoop({
-    client: fakeClient,
-    logger: createLogger(),
-    movementGoal: MOVEMENT_GOAL_FOLLOW_PLAYER,
-    followPlayerName: "TargetPlayer",
-    getFollowTargetPosition: () => null,
-    getPosition: () => currentPosition,
-    setPosition: (position) => {
-      currentPosition = position;
-    },
-    getTick: () => {
-      tick += 1n;
-      return tick;
-    }
-  });
-  await new Promise((resolve) => setTimeout(resolve, 260));
-  movementLoop.cleanup();
-  assert.equal(fakeClient.queueCalls.length >= 2, true);
-});
-
 void test("configureMovementLoop follow-player mode moves toward target", async () => {
   const fakeClient = new FakeClient();
   let currentPosition = { x: 0, y: 70, z: 0 };
@@ -180,6 +156,44 @@ void test("configureMovementLoop follow-coordinates mode stops near target", asy
     return (movementVector?.x ?? 1) === 0 && (movementVector?.z ?? 1) === 0;
   });
   assert.equal(stoppedMove, true);
+});
+
+void test("configureMovementLoop uses navigation waypoint override", async () => {
+  const fakeClient = new FakeClient();
+  let currentPosition = { x: 0, y: 70, z: 0 };
+  const movementLoop = configureMovementLoop({
+    client: fakeClient,
+    logger: createLogger(),
+    movementGoal: MOVEMENT_GOAL_FOLLOW_COORDINATES,
+    followCoordinates: { x: 6, y: 70, z: 0 },
+    resolveNavigationWaypoint: () => ({ x: 0, y: 70, z: 6 }),
+    getPosition: () => currentPosition,
+    setPosition: (position) => { currentPosition = position; },
+    getTick: () => 1n
+  });
+  await new Promise((resolve) => setTimeout(resolve, 130));
+  movementLoop.cleanup();
+  assert.equal(currentPosition.z > 0, true);
+  assert.equal(Math.abs(currentPosition.x) < 0.1, true);
+});
+
+void test("configureMovementLoop does not fall back to direct target when navigation waypoint is unavailable", async () => {
+  const fakeClient = new FakeClient();
+  let currentPosition = { x: 0, y: 70, z: 0 };
+  const movementLoop = configureMovementLoop({
+    client: fakeClient,
+    logger: createLogger(),
+    movementGoal: MOVEMENT_GOAL_FOLLOW_COORDINATES,
+    followCoordinates: { x: 6, y: 70, z: 0 },
+    resolveNavigationWaypoint: () => null,
+    getPosition: () => currentPosition,
+    setPosition: (position) => { currentPosition = position; },
+    getTick: () => 1n
+  });
+  await new Promise((resolve) => setTimeout(resolve, 130));
+  movementLoop.cleanup();
+  assert.equal(Math.abs(currentPosition.x) < 0.01, true);
+  assert.equal(Math.abs(currentPosition.z) < 0.01, true);
 });
 
 void test("configureMovementLoop applies terrain safety recovery after local drop", async () => {
